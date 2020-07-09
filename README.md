@@ -8,11 +8,13 @@ With much help from OpenCV, https://www.pyimagesearch.com/ and https://cvlib.net
 
 ## Installing
 
-You can clone the repo and call `./find_motion.py` directly. Use `python3 -mpip install -r requirements.txt --user` to install dependencies.
+First clone the repo and change into the directory.
 
 To install as a module do `python3 -mpip install . --user` in the repo directory. You can run it with `find_motion` once it is installed.
 
-If you get errors to do with progressbar, try uninstalling the `progressbar` module (`python3 -mpip uninstall progressbar`) and reinstalling `progressbar2` (`python3 -mpip install progressbar2 --user`).
+Otherwise, use `python3 -mpip install -r requirements.txt --user` to install dependencies. Then call `./find_motion.py` directly.
+
+If you start to get errors to do with progressbar, try reinstalling `progressbar2` (`python3 -mpip install progressbar2 --user`) - something else may have installed `progressbar`, which conflicts with `progressbar2`.
 
 ## Usage
 

@@ -4,7 +4,6 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 requirements = [
-    'progressbar2',
     'mem_top',
     'orderedset',
     'opencv-python',
@@ -12,6 +11,7 @@ requirements = [
     'numpy',
     'pynput',
     'cvlib',
+    'progressbar2',
     'tensorflow',
     'jsonschema'
 ]

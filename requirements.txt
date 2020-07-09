@@ -1,4 +1,3 @@
-progressbar2
 mem_top
 orderedset
 opencv-python
@@ -6,5 +5,6 @@ imutils
 numpy
 pynput
 cvlib
+progressbar2
 tensorflow
 jsonschema

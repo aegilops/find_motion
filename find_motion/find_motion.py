@@ -49,17 +49,20 @@ import copy
 
 from functools import partial
 from multiprocessing import Pool, Event
-from pynput import keyboard
-
-import logging
+try:
+    from pynput import keyboard
+except Exception as err:
+    print("ERROR: Install and configure an X server, e.g. vcxsrv, to support pynput on this system", file=sys.stderr)
+    sys.exit(-1)
 import progressbar
 from progressbar import ProgressBar
-from find_motion.DummyProgressBar import DummyProgressBar
+from .DummyProgressBar import DummyProgressBar
 
 from mem_top import mem_top
 from orderedset import OrderedSet
 
 import warnings
+warnings.filterwarnings("ignore", r"Passing \(type, 1\) or '1type' as a synonym of type is deprecated", FutureWarning, ".*")
 
 from numpy import array as np_array
 from numpy import int32 as np_int32
@@ -69,8 +72,9 @@ import cv2
 import imutils
 import cvlib as cv
 
+import logging
 
-warnings.filterwarnings("ignore", r"Passing \(type, 1\) or '1type' as a synonym of type is deprecated", FutureWarning, ".*")
+
 # pylint: disable=invalid-name
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
@@ -1493,7 +1497,4 @@ def get_args(parser: ArgumentParser) -> None:
     parser.add_argument('--mem', '-u', action='store_true', help='Run memory usage')
     parser.add_argument('--debug', '-d', action='store_true', help='Debug')
     parser.add_argument('--test', '-T', action='store_true', help='Test which files or camera streams would be processed')
-
-
-if __name__ == '__main__':
-    main()
+s

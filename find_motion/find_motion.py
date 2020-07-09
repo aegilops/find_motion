@@ -1034,6 +1034,7 @@ def run_vid(filename: typing.Union[str, int], **kwargs) -> tuple:
     except Exception as e:
         err_msg = 'Error processing video {}: {}'.format(filename, e)
         wrote_frames = None
+    log.debug("Finished video %s", filename)
     return (wrote_frames, filename, err_msg, seen_objects)
 
 
@@ -1078,14 +1079,15 @@ def run_pool(job: typing.Callable[..., typing.Any], processes: int, files: typin
         num_err = 0
         num_wrote = 0
 
-        while True:
-            # Collect keyboard events until released
-            with keyboard.Listener(
-                on_press=on_press,
-                on_release=on_release
-            ) as listener:
+        # Collect keyboard events until released
+        with keyboard.Listener(
+            on_press=on_press,
+            on_release=on_release
+        ) as listener:
+            while True:
                 if unpaused.is_set():
                     files_done = {res.get() for res in results if res.ready()}
+                    log.debug(files_done)
                     num_done = len(files_done)
 
                     if num_done > done:
@@ -1114,6 +1116,8 @@ def run_pool(job: typing.Callable[..., typing.Any], processes: int, files: typin
                     if num_done == num_files:
                         log.debug("All processes completed. {} errors, wrote {} files".format(num_err, num_wrote))
                         break
+                else:
+                    log.debug("Paused")
                 time.sleep(1)
     except KeyboardInterrupt:
         log.warning('Ending processing at user request')

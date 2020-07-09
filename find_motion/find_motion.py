@@ -49,11 +49,6 @@ import copy
 
 from functools import partial
 from multiprocessing import Pool, Event
-try:
-    from pynput import keyboard
-except Exception as err:
-    print("ERROR: Install and configure an X server, e.g. vcxsrv, to support pynput on this system", file=sys.stderr)
-    sys.exit(-1)
 import progressbar
 from progressbar import ProgressBar
 from .DummyProgressBar import DummyProgressBar
@@ -140,41 +135,6 @@ def init_worker(event) -> None:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     global unpaused
     unpaused = event
-
-
-HELD: set = set()
-
-
-def on_press(key: keyboard.Key) -> bool:
-    """
-    Listen for spacebar keypresses in controller process, set event in worker processes to pause them
-
-    This listens to keypress on all programs, so we pick a strange and unusual key combination - shift-pause
-    """
-    log.debug(str(key) + ' down')
-    log.debug(str(HELD))
-    if key == keyboard.Key.esc:
-        # Stop listener
-        return False
-    if key == keyboard.Key.pause and keyboard.Key.pause not in HELD and keyboard.Key.shift in HELD and keyboard.Key.alt_l in HELD:
-        if unpaused.is_set():
-            unpaused.clear()
-            log.debug('Pausing')
-        else:
-            unpaused.set()
-            log.debug('Resuming')
-    HELD.add(key)
-    return True
-
-
-def on_release(key: keyboard.Key) -> bool:
-    log.debug(str(key) + ' up')
-    if key in HELD:
-        HELD.remove(key)
-    if key == keyboard.Key.esc:
-        # Stop listener
-        return False
-    return True
 
 
 class VideoError(Exception):
@@ -664,7 +624,6 @@ class VideoMotion(object):
             # find contours from the diff data
             frame.find_contours()
 
-
     def find_movement(self, frame: VideoFrame=None) -> None:
         """
         Locate contours that are big enough to count as movement
@@ -701,7 +660,6 @@ class VideoMotion(object):
             self.movement_counter = 0
 
         return
-
 
     def find_objects(self, frame: VideoFrame=None, width=300, skip=15, scaleFactor=1.1, minNeighbours=5, confidence=0.25) -> typing.Set[str]:
         frame = self.current_frame if frame is None else frame
@@ -748,7 +706,6 @@ class VideoMotion(object):
 
         return set(self.last_objects.keys())
 
-
     def draw_objects(self, image, scale) -> None:
         for title, areas in self.last_objects.items():
             for area in areas:
@@ -764,14 +721,12 @@ class VideoMotion(object):
 
                 self.log.debug('{} found'.format(title))
 
-
     @staticmethod
     def find_centre(area: typing.List) -> typing.Tuple[int, int]:
         return (
             (area[0][0] + area[1][0]) // 2,
             (area[0][1] + area[1][1]) // 2
         )
-
 
     def draw_text(self, frame: VideoFrame=None) -> None:
         """
@@ -900,7 +855,6 @@ class VideoMotion(object):
 #        self.frame_cache.clear()
 
         return self.wrote_frames, self.err_msg, tuple(self.seen_objects)
-
 
     def show_frames(self) -> None:
         if self.frame_height > 0 and self.frame_width > 0:
@@ -1066,12 +1020,10 @@ def run_pool(job: typing.Callable[..., typing.Any], processes: int, files: typin
     files_written: typing.Set = set()
     results: list = []
 
-    global unpaused
     pool = None
 
     try:
         pool = Pool(processes=processes, initializer=partial(init_worker, unpaused))
-        unpaused.set()
 
         for filename in files:
             results.append(pool.apply_async(job, (filename,)))
@@ -1079,50 +1031,42 @@ def run_pool(job: typing.Callable[..., typing.Any], processes: int, files: typin
         num_err = 0
         num_wrote = 0
 
-        # Collect keyboard events until released
-        with keyboard.Listener(
-            on_press=on_press,
-            on_release=on_release
-        ) as listener:
-            while True:
-                if unpaused.is_set():
-                    files_done = {res.get() for res in results if res.ready()}
-                    log.debug(files_done)
-                    num_done = len(files_done)
+        while True:
+            files_done = {res.get() for res in results if res.ready()}
+            log.debug(files_done)
+            num_done = len(files_done)
 
-                    if num_done > done:
-                        done = num_done
+            if num_done > done:
+                done = num_done
 
-                    if done > 0:
-                        new = files_done.difference(files_written)
-                        files_written.update(new)
+            if done > 0:
+                new = files_done.difference(files_written)
+                files_written.update(new)
 
-                        for wrote_frames, filename, err_msg, seen_objects in new:
-                            log.debug('Done {}{}'.format(filename, '' if wrote_frames else ' (no output)'))
+                for wrote_frames, filename, err_msg, seen_objects in new:
+                    log.debug('Done {}{}'.format(filename, '' if wrote_frames else ' (no output)'))
 
-                            if err_msg:
-                                log.error('Error processing {}: {}'.format(filename, err_msg))
-                                log.debug('Saw objects: {}'.format(seen_objects))
-                                num_err += 1
-                            else:
-                                if progress_log is not None:
-                                    print("{} // {}".format(filename, seen_objects), file=progress_log)
+                    if err_msg:
+                        log.error('Error processing {}: {}'.format(filename, err_msg))
+                        log.debug('Saw objects: {}'.format(seen_objects))
+                        num_err += 1
+                    else:
+                        if progress_log is not None:
+                            print("{} // {}".format(filename, seen_objects), file=progress_log)
 
-                            if wrote_frames:
-                                num_wrote += 1
+                    if wrote_frames:
+                        num_wrote += 1
 
-                    pbar.update(done)
+            pbar.update(done)
 
-                    if num_done == num_files:
-                        log.debug("All processes completed. {} errors, wrote {} files".format(num_err, num_wrote))
-                        break
-                else:
-                    log.debug("Paused")
-                time.sleep(1)
+            if num_done == num_files:
+                log.debug("All processes completed. {} errors, wrote {} files".format(num_err, num_wrote))
+                break
+
+            time.sleep(1)
     except KeyboardInterrupt:
         log.warning('Ending processing at user request')
 
-    unpaused.clear()
     if pool is not None:
         pool.terminate()
 
@@ -1137,24 +1081,19 @@ def run_map(job: typing.Callable, files: typing.Iterable[str], pbar: typing.Unio
     done: int = 0
 
     try:
-        # Collect keyboard events until released
-        with keyboard.Listener(
-            on_press=on_press,
-            on_release=on_release
-        ) as listener:
-            for wrote_frames, filename, err_msg, seen_objects in files_processed:
-                if pbar is not None:
-                    done += 1
-                    pbar.update(done)
+        for wrote_frames, filename, err_msg, seen_objects in files_processed:
+            if pbar is not None:
+                done += 1
+                pbar.update(done)
 
-                log.debug('Done {}{}'.format(filename, '' if wrote_frames else ' (no output: {})'.format(err_msg)))
+            log.debug('Done {}{}'.format(filename, '' if wrote_frames else ' (no output: {})'.format(err_msg)))
 
-                if err_msg:
-                    log.error('Error processing {}: {}'.format(filename, err_msg))
-                    log.debug('Saw objects: {}'.format(seen_objects))
-                else:
-                    if progress_log is not None:
-                        print("{} // {}".format(filename, seen_objects), file=progress_log)
+            if err_msg:
+                log.error('Error processing {}: {}'.format(filename, err_msg))
+                log.debug('Saw objects: {}'.format(seen_objects))
+            else:
+                if progress_log is not None:
+                    print("{} // {}".format(filename, seen_objects), file=progress_log)
     except KeyboardInterrupt:
         log.warning('Ending processing at user request')
 

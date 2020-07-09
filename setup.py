@@ -9,7 +9,6 @@ requirements = [
     'opencv-python',
     'imutils',
     'numpy',
-    'pynput',
     'cvlib',
     'progressbar2',
     'tensorflow',

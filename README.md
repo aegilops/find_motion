@@ -63,7 +63,7 @@ Progress is logged by default in `progress.log` in the output directory.
 
 ### Config file
 
-If you use a config file with `--config` then it takes an INI file format with a single `[settings]` section.
+You can provide an INI format file with a single `[settings]` section using the `--config` option.
 
 Use the same names as the optional arguments given in the help for the fields of the settings file.
 

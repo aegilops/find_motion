@@ -10,8 +10,10 @@ With much help from https://www.pyimagesearch.com/
 Caches images for a few frames before and after it detects movement
 """
 
-"""
+r"""
 # TODO: fix --ignore-drive, it's broken
+
+# TODO: treat /mnt/d/some/path/ the same as D:\some\path for --ignore-drive
 
 # TODO: have args as provided by argparse take priority over those in the config (currently it is vv)
 
@@ -52,13 +54,12 @@ from pynput import keyboard
 import logging
 import progressbar
 from progressbar import ProgressBar
-from DummyProgressBar import DummyProgressBar
+from find_motion.DummyProgressBar import DummyProgressBar
 
 from mem_top import mem_top
 from orderedset import OrderedSet
 
 import warnings
-warnings.filterwarnings("ignore", r"Passing \(type, 1\) or '1type' as a synonym of type is deprecated", FutureWarning, ".*")
 
 from numpy import array as np_array
 from numpy import int32 as np_int32
@@ -69,6 +70,7 @@ import imutils
 import cvlib as cv
 
 
+warnings.filterwarnings("ignore", r"Passing \(type, 1\) or '1type' as a synonym of type is deprecated", FutureWarning, ".*")
 # pylint: disable=invalid-name
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
@@ -569,10 +571,10 @@ class VideoMotion(object):
 
                 self.frame_cache.clear()
 
-            objects = self.find_objects()   # TODO: pass args to set params
-            if objects is not None and objects:
-                self.log.debug("Saw {} in motion".format(objects))
-                self.seen_objects.update(objects)
+                objects = self.find_objects()   # TODO: pass args to set params
+                if objects is not None and objects:
+                    self.log.debug("Saw {} in motion".format(objects))
+                    self.seen_objects.update(objects)
 
             # draw the text and identify objects
             if self.show:
@@ -1022,14 +1024,16 @@ def run_vid(filename: typing.Union[str, int], **kwargs) -> tuple:
     """
     Video creation and runner function to pass to multiprocessing pool
     """
+    wrote_frames = None
+    seen_objects = None
+    err_msg = None
     try:
         vid = VideoMotion(filename=filename, **kwargs)
         if vid.loaded:
             log.debug('Video loaded')
             wrote_frames, err_msg, seen_objects = vid.find_motion()
         else:
-            wrote_frames = None
-            seen_objects = None
+
             err_msg = 'Video did not load successfully'
     except Exception as e:
         err_msg = 'Error processing video {}: {}'.format(filename, e)
@@ -1066,6 +1070,7 @@ def run_pool(job: typing.Callable[..., typing.Any], processes: int, files: typin
     results: list = []
 
     global unpaused
+    pool = None
 
     try:
         pool = Pool(processes=processes, initializer=partial(init_worker, unpaused))
@@ -1118,8 +1123,8 @@ def run_pool(job: typing.Callable[..., typing.Any], processes: int, files: typin
         log.warning('Ending processing at user request')
 
     unpaused.clear()
-    listener.stop()
-    pool.terminate()
+    if pool is not None:
+        pool.terminate()
 
 
 def run_map(job: typing.Callable, files: typing.Iterable[str], pbar: typing.Union[ProgressBar, DummyProgressBar]=DUMMY_PROGRESS_BAR, progress_log: typing.IO[str]=None) -> None:
@@ -1152,7 +1157,6 @@ def run_map(job: typing.Callable, files: typing.Iterable[str], pbar: typing.Unio
                         print("{} // {}".format(filename, seen_objects), file=progress_log)
     except KeyboardInterrupt:
         log.warning('Ending processing at user request')
-    listener.stop()
 
 
 def run_stream(job: typing.Callable, processes: int, cameras: typing.List[int], progress_log: typing.IO[str]=None) -> None:
@@ -1165,6 +1169,7 @@ def run_stream(job: typing.Callable, processes: int, cameras: typing.List[int], 
     done: int = 0
     files_written: typing.Set = set()
     results: list = []
+    pool = None
 
     if num_cameras == 1 and processes == 1:
         log.debug('Single process, single camera stream')
@@ -1207,7 +1212,8 @@ def run_stream(job: typing.Callable, processes: int, cameras: typing.List[int], 
             log.warning('Ending processing at user request')
             # TODO: summarise output from streams effectively
 
-        pool.terminate()
+        if pool is not None:
+            pool.terminate()
 
 
 def test_files(files):

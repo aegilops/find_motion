@@ -1497,4 +1497,3 @@ def get_args(parser: ArgumentParser) -> None:
     parser.add_argument('--mem', '-u', action='store_true', help='Run memory usage')
     parser.add_argument('--debug', '-d', action='store_true', help='Debug')
     parser.add_argument('--test', '-T', action='store_true', help='Test which files or camera streams would be processed')
-s

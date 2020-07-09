@@ -235,15 +235,17 @@ class VideoFrame(object):
     """
     encapsulate frame stuff here, out of main video class
     """
-    def __init__(self, frame, gaussian: typing.Tuple[int, int], mask_areas: typing.List[typing.Any], scale:float = 1.0, threshold: int = None, box_size: int = None) -> None:
+    def __init__(self, frame, show: bool, gaussian: typing.Tuple[int, int], mask_areas: typing.List[typing.Any], scale:float = 1.0, threshold: int = None, box_size: int = None) -> None:
+        self.raw: np_ndarray = frame
+        self.show: bool = show
         self.gaussian: typing.Tuple[int, int] = gaussian
         self.mask_areas = mask_areas
         self.scale: float = scale
         self.threshold_value = threshold
         self.box_size = box_size
 
-        self.raw: np_ndarray = frame
-        self.frame: np_ndarray = self.raw.copy()    # TODO: work out how to remove this if show is False and still have things work
+
+        self.frame: typing.Optional[np_ndarray] = self.raw.copy() if self.show else None    # TODO: work out how to remove this if show is False and still have things work
         self.in_cache: bool = False
         self.contours: typing.List = []
         self.frame_delta: np_ndarray = None
@@ -519,7 +521,7 @@ class VideoMotion(object):
         if not ret:
             return False
 
-        self.current_frame = VideoFrame(frame, self.gaussian, self.mask_areas, self.scale, self.delta_thresh, self.box_size)
+        self.current_frame = VideoFrame(frame, self.show, self.gaussian, self.mask_areas, self.scale, self.delta_thresh, self.box_size)
         return True
 
     def output_frame(self, frame: VideoFrame=None) -> None:
@@ -775,13 +777,14 @@ class VideoMotion(object):
         """
         Put the status text on the frame
         """
-        frame = self.current_frame if frame is None else frame
-        # draw the text
-        cv2.putText(frame.frame,
-                    "Status: {}".format('motion' if self.movement else 'quiet'),
-                    (10, 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5, RED, 2)
+        if self.show:
+            frame = self.current_frame if frame is None else frame
+            # draw the text
+            cv2.putText(frame.frame,
+                        "Status: {}".format('motion' if self.movement else 'quiet'),
+                        (10, 20),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, RED, 2)
         return
 
     def make_box(self, contour, frame: VideoFrame=None) -> typing.Tuple[typing.Tuple[int, int], typing.Tuple[int, int]]:
@@ -806,8 +809,9 @@ class VideoMotion(object):
         return area
 
     def draw_box(self, area, frame: VideoFrame=None) -> None:
-        frame = self.current_frame if frame is None else frame
-        cv2.rectangle(frame.frame, *VideoMotion.scale_area(area, 1 / self.scale), GREEN, 2)
+        if self.show:
+            frame = self.current_frame if frame is None else frame
+            cv2.rectangle(frame.frame, *VideoMotion.scale_area(area, 1 / self.scale), GREEN, 2)
 
     @staticmethod
     def key_pressed(key: str) -> bool:

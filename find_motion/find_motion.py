@@ -88,6 +88,7 @@ DUMMY_PROGRESS_BAR: DummyProgressBar = DummyProgressBar()
 BLACK = (0, 0, 0)
 RED = (0, 0, 255)
 GREEN = (0, 255, 0)
+BLUE = (255, 0, 0)
 
 MASK_SCHEMA = {
     "type": "array",
@@ -132,7 +133,7 @@ unpaused = Event()
 
 def init_worker(event) -> None:
     """
-    Supress signal handling in the worker processes so that they don't capture SIGINT (ctrl-c)
+    Suppress signal handling in the worker processes so that they don't capture SIGINT (ctrl-c)
 
     Set an event so we can pause workers
     """
@@ -200,10 +201,8 @@ class VideoInfo(object):
 
         self.loaded = self._load_video()
 
-
     def __str__(self) -> str:
         return "File: {}; {} frames; {}x{}px".format(self.filename, self.amount_of_frames, self.frame_width, self.frame_height)
-
 
     def _load_video(self) -> bool:
         """
@@ -216,7 +215,6 @@ class VideoInfo(object):
             self.log.error(str(e))
             return False
         return True
-
 
     def _get_video_info(self) -> None:
         """
@@ -237,7 +235,13 @@ class VideoFrame(object):
     """
     encapsulate frame stuff here, out of main video class
     """
-    def __init__(self, frame, show=False) -> None:
+    def __init__(self, frame, gaussian: typing.Tuple[int, int], mask_areas: typing.List[typing.Any], scale:float = 1.0, threshold: int = None, box_size: int = None) -> None:
+        self.gaussian: typing.Tuple[int, int] = gaussian
+        self.mask_areas = mask_areas
+        self.scale: float = scale
+        self.threshold_value = threshold
+        self.box_size = box_size
+
         self.raw: np_ndarray = frame
         self.frame: np_ndarray = self.raw.copy()    # TODO: work out how to remove this if show is False and still have things work
         self.in_cache: bool = False
@@ -248,20 +252,17 @@ class VideoFrame(object):
         self.blur: np_ndarray = None
         self.resized: np_ndarray = None
 
-
     def diff(self, ref_frame) -> None:
         """
         Find the diff between this frame and the reference frame
         """
         self.frame_delta = cv2.absdiff(self.blur, cv2.convertScaleAbs(ref_frame))
 
-
-    def threshold(self, thresh) -> None:
+    def threshold(self) -> None:
         """
         Find the threshold of the diff
         """
-        self.thresh = cv2.threshold(self.frame_delta, thresh, maxval=255, type=cv2.THRESH_BINARY)[1]
-
+        self.thresh = cv2.threshold(self.frame_delta, self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
 
     def find_contours(self) -> None:
         """
@@ -281,6 +282,24 @@ class VideoFrame(object):
             return
         self.contours = cnts
 
+    def blur_frame(self) -> None:
+        small = imutils.resize(self.raw, width=self.box_size)
+        self.gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        self.blur = cv2.GaussianBlur(self.gray, self.gaussian, 0)
+
+    def mask_off_areas(self) -> None:
+        for area in self.mask_areas:
+            scaled_area = VideoMotion.scale_area(area, self.scale)
+            dim = len(scaled_area)
+            if dim == 2:
+                cv2.rectangle(self.blur,
+                              *scaled_area,
+                              BLACK, cv2.FILLED)
+            else:
+                pts = np_array(scaled_area, np_int32)
+                cv2.fillConvexPoly(self.blur,
+                                   pts,
+                                   BLACK)
 
     def cleanup(self) -> None:
         """
@@ -387,7 +406,6 @@ class VideoMotion(object):
         self._make_gaussian()
         self.loaded = self._load_video()
 
-
     def _load_cascades(self) -> None:
         """
         Load object recognition cascades named in options
@@ -406,13 +424,11 @@ class VideoMotion(object):
             self.log.debug('No cascades')
             self.cascades = dict()
 
-
     def _calc_min_area(self) -> None:
         """
         Set the minimum motion area based on the box size
         """
         self.min_area = int(math.pow(self.box_size / self.min_box_scale, 2))
-
 
     def _load_video(self) -> bool:
         """
@@ -430,7 +446,6 @@ class VideoMotion(object):
         self.scale = self.box_size / self.frame_width
         self.max_area = int((self.frame_width * self.frame_height) / 2 * self.scale)
         return True
-
 
     def _get_video_info(self) -> None:
         """
@@ -450,7 +465,6 @@ class VideoMotion(object):
         elif self.amount_of_frames == -1:
             log.debug('Streaming - frames reported as -1')
         return
-
 
     def _make_outfile(self) -> None:
         """
@@ -482,7 +496,6 @@ class VideoMotion(object):
 
         self.log.debug('Made output file')
 
-
     def _make_gaussian(self) -> None:
         """
         Make a gaussian for the blur using the box size as a guide
@@ -491,16 +504,12 @@ class VideoMotion(object):
         gaussian_size = gaussian_size + 1 if gaussian_size % 2 == 0 else gaussian_size
         self.gaussian = (gaussian_size, gaussian_size)
 
-
     def blur_frame(self, frame=None) -> None:
         """
         Shrink, grayscale and blur the frame
         """
         frame = self.current_frame if frame is None else frame
-        small = imutils.resize(frame.raw, width=self.box_size)
-        frame.gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-        frame.blur = cv2.GaussianBlur(frame.gray, self.gaussian, 0)
-
+        frame.blur_frame()
 
     def read(self) -> bool:
         """
@@ -510,9 +519,8 @@ class VideoMotion(object):
         if not ret:
             return False
 
-        self.current_frame = VideoFrame(frame)
+        self.current_frame = VideoFrame(frame, self.gaussian, self.mask_areas, self.scale, self.delta_thresh, self.box_size)
         return True
-
 
     def output_frame(self, frame: VideoFrame=None) -> None:
         """
@@ -536,7 +544,6 @@ class VideoMotion(object):
             self.log.warning('Having to create output file due to exception: {}'.format(e))
             self._make_outfile()
             self.outfile.write(frame.raw)
-
 
     def output_raw_frame(self, frame: np_ndarray=None) -> None:
         """
@@ -598,7 +605,6 @@ class VideoMotion(object):
             self.frame_cache.append(self.current_frame)
             self.current_frame.in_cache = True
 
-
     def cleanup_cache(self) -> None:
         cache_size = len(self.frame_cache)
         self.log.debug(str(cache_size))
@@ -610,13 +616,11 @@ class VideoMotion(object):
                 delete_frame.cleanup()
                 del delete_frame
 
-
     def is_open(self) -> bool:
         """
         Return if the capture member is open
         """
         return self.cap.isOpened()
-
 
     @staticmethod
     def scale_area(area: typing.Tuple[typing.Tuple[int, int], typing.Tuple[int, int]], scale: float) -> list:
@@ -625,25 +629,12 @@ class VideoMotion(object):
         """
         return [(int(a[0] * scale), int(a[1] * scale)) for a in area]
 
-
     def mask_off_areas(self, frame: VideoFrame=None):
         """
         Draw black polygons over the masked off areas
         """
         frame = self.current_frame if frame is None else frame
-        for area in self.mask_areas:
-            scaled_area = VideoMotion.scale_area(area, self.scale)
-            dim = len(scaled_area)
-            if dim == 2:
-                cv2.rectangle(frame.blur,
-                              *scaled_area,
-                              BLACK, cv2.FILLED)
-            else:
-                pts = np_array(scaled_area, np_int32)
-                cv2.fillConvexPoly(frame.blur,
-                                   pts,
-                                   BLACK)
-
+        frame.mask_off_areas()
 
     def find_diff(self, frame: VideoFrame=None) -> None:
         """
@@ -663,7 +654,7 @@ class VideoMotion(object):
 
             # compute the absolute difference between the current frame and ref frame
             frame.diff(self.ref_frame)
-            frame.threshold(self.delta_thresh)
+            frame.threshold()
 
             # update reference frame using weighted average
             cv2.accumulateWeighted(frame.blur, self.ref_frame, self.avg)
@@ -760,7 +751,7 @@ class VideoMotion(object):
         for title, areas in self.last_objects.items():
             for area in areas:
                 if self.show:
-                    scaled_area = self.scale_area(area, scale)
+                    scaled_area = VideoMotion.scale_area(area, scale)
                     cv2.rectangle(image, *scaled_area, RED, 3)
                     cv2.putText(image,
                                 title,
@@ -793,14 +784,12 @@ class VideoMotion(object):
                     0.5, RED, 2)
         return
 
-
     def make_box(self, contour, frame: VideoFrame=None) -> typing.Tuple[typing.Tuple[int, int], typing.Tuple[int, int]]:
         """
         Draw a green bounding box on the frame
         """
         frame = self.current_frame if frame is None else frame
         return VideoMotion.make_area_from_rect(cv2.boundingRect(contour))
-
 
     @staticmethod
     def make_area_from_box(object_tuple: typing.Tuple[typing.Any, ...]) -> typing.Tuple[typing.Tuple[int, int], typing.Tuple[int, int]]:
@@ -809,7 +798,6 @@ class VideoMotion(object):
         area = ((x1, y1), (x2, y2))
         return area
 
-
     @staticmethod
     def make_area_from_rect(object_tuple: typing.Tuple[int, int, int, int]) -> typing.Tuple[typing.Tuple[int, int], typing.Tuple[int, int]]:
         # pylint: disable=invalid-name
@@ -817,11 +805,9 @@ class VideoMotion(object):
         area = ((x, y), (x + w, y + h))
         return area
 
-
     def draw_box(self, area, frame: VideoFrame=None) -> None:
         frame = self.current_frame if frame is None else frame
-        cv2.rectangle(frame.frame, *self.scale_area(area, 1 / self.scale), GREEN, 2)
-
+        cv2.rectangle(frame.frame, *VideoMotion.scale_area(area, 1 / self.scale), GREEN, 2)
 
     @staticmethod
     def key_pressed(key: str) -> bool:
@@ -829,7 +815,6 @@ class VideoMotion(object):
         Say if we pressed the key we asked for
         """
         return cv2.waitKey(1) & 0xFF == ord(key)
-
 
     def cleanup(self) -> None:
         """
@@ -857,7 +842,6 @@ class VideoMotion(object):
             del self.frame_cache
 
         return
-
 
     def find_motion(self) -> tuple:
         """

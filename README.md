@@ -6,11 +6,19 @@ Caches images for a few frames before and after it detects movement.
 
 With much help from OpenCV, https://www.pyimagesearch.com/ and https://cvlib.net/.
 
+## Installing
+
+You can clone the repo and call `./find_motion.py` directly. Use `python3 -mpip install -r requirements.txt --user` to install dependencies.
+
+To install as a module do `python3 -mpip install . --user` in the repo directory. You can run it with `find_motion` once it is installed.
+
+If you get errors to do with progressbar, try uninstalling the `progressbar` module (`python3 -mpip uninstall progressbar`) and reinstalling `progressbar2` (`python3 -mpip install progressbar2 --user`).
+
 ## Usage
 
-Use `find_motion.py -h` and `pydoc3 find_motion.py` to get detailed documentation.
+Use `./find_motion.py -h and `pydoc3 find_motion.py` (or find_motion -h` and `pydoc3 find_motion` if you installed the module) to get detailed documentation.
 
-Hit `alt`-`shift`-`pause` to pause/unpause when using multiprocessing.
+Hit the `alt`-`shift`-`pause` keys to pause/unpause when using multiprocessing.
 
 ### Tuning
 
@@ -59,10 +67,4 @@ If you use a config file with `--config` then it takes an INI file format with a
 
 Use the same names as the optional arguments given in the help for the fields of the settings file.
 
-## Installing
 
-You can clone the repo and call `./find_motion.py` directly. Use `pip3 install -r requirements.txt` to install dependencies.
-
-To install as a module do `pip3 install .` in the repo directory.
-
-If you get errors to do with progressbar, try uninstalling the `progressbar` module (`pip3 uninstall progressbar`) and reinstalling `progressbar2` (`pip3 install progressbar2`).

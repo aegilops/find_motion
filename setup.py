@@ -25,11 +25,16 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/aegilops/find_motion",
+    entry_points={"console_scripts": ["find_motion=find_motion.find_motion:main"], },
     packages=setuptools.find_packages(),
     install_requires=requirements,
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
+        "Development Status :: 5 - Production/Stable",
+        "Environment :: Console",
+        "Topic :: Multimedia :: Video",
+        "Topic :: Scientific/Engineering :: Image Recognition"
     ],
 )

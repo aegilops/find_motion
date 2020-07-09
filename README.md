@@ -20,8 +20,6 @@ If you start to get errors to do with progressbar, try reinstalling `progressbar
 
 Use `./find_motion.py -h and `pydoc3 find_motion.py` (or find_motion -h` and `pydoc3 find_motion` if you installed the module) to get detailed documentation.
 
-Hit the `alt`-`shift`-`pause` keys to pause/unpause when using multiprocessing.
-
 ### Tuning
 
 To reduce false motion from shadows, wind movement, noise, sun glare and so on, you can control:

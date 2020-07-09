@@ -310,7 +310,8 @@ class VideoMotion(object):
                  mem: bool=False, cleanup: bool=False,
                  multiprocess: bool=False,
                  cascades: typing.List[str]=None,
-                 yolo_tiny: bool=False) -> None:
+                 yolo_tiny: bool=False,
+                 no_object_detection: bool=False) -> None:
         self.filename = filename
 
         if self.filename is None:
@@ -343,19 +344,20 @@ class VideoMotion(object):
         self.avg: float = avg
         self.mask_areas: typing.List[typing.Any] = mask_areas if mask_areas is not None else []
         self.show: bool = show
-        self.cascade_names: typing.Optional[typing.List[str]] = cascades
-
+        
         self.log.debug('Caching {} frames, min motion {} frames'.format(self.cache_frames, self.min_movement_frames))
+
+        self.no_object_detection: bool = no_object_detection
+        self.cascade_names: typing.Optional[typing.List[str]] = cascades if not self.no_object_detection else []
+        self.cascades: typing.Optional[typing.Dict[str, typing.Any]] = None
+        self._load_cascades()
+        self.log.debug(str(self.cascades))
+        self.tiny = yolo_tiny
 
         self.codec: str = codec
         self.debug: bool = log_level == logging.DEBUG
         self.mem: bool = mem
         self.cleanup_flag: bool = cleanup
-
-        self.cascades: typing.Optional[typing.Dict[str, typing.Any]] = None
-        self._load_cascades()
-        self.log.debug(str(self.cascades))
-        self.tiny = yolo_tiny
 
         self.log.debug(self.codec)
 
@@ -575,12 +577,14 @@ class VideoMotion(object):
 
                 self.frame_cache.clear()
 
-                objects = self.find_objects()   # TODO: pass args to set params
-                if objects is not None and objects:
-                    self.log.debug("Saw {} in motion".format(objects))
-                    self.seen_objects.update(objects)
+                # identify objects
+                if not self.no_object_detection:
+                    objects = self.find_objects()   # TODO: pass args to set params
+                    if objects is not None and objects:
+                        self.log.debug("Saw {} in motion".format(objects))
+                        self.seen_objects.update(objects)
 
-            # draw the text and identify objects
+            # draw the text
             if self.show:
                 self.draw_text()
 
@@ -1338,7 +1342,8 @@ def run(args: Namespace, print_help: typing.Callable=lambda x: None) -> None:
                   blur_scale=args.blur_scale, box_size=args.box_size, min_box_scale=args.min_box_scale,
                   threshold=args.threshold, avg=args.avg,
                   fps=args.fps, min_time=args.mintime, cache_time=args.cachetime,
-                  multiprocess=args.processes > 1, cascades=args.cascade_object, yolo_tiny=args.yolo_tiny)
+                  multiprocess=args.processes > 1, cascades=args.cascade_object, yolo_tiny=args.yolo_tiny,
+                  no_object_detection=args.no_object_detection)
 
     try:
         if args.cameras:
@@ -1479,6 +1484,7 @@ def get_args(parser: ArgumentParser) -> None:
 
     parser.add_argument('--cascade-object', '-O', nargs='*', type=str, help='Specific types of objects to detect using haar cascades (slow!)')
     parser.add_argument('--yolo-tiny', '-yt', action='store_true', help='Use fast common object detection')
+    parser.add_argument('--no-object-detection', '-no', action='store_true', help="Don't do any object detection")
 
     parser.add_argument('--blur-scale', '-b', type=int, default=20, help='Scale of gaussian blur size compared to video width (used as 1/blur_scale)')
     parser.add_argument('--box-size', '-B', type=int, default=100, help='Pixel size to scale the video to for processing')

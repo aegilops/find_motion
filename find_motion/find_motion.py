@@ -802,7 +802,7 @@ class VideoMotion(object):
 
         return
 
-    def find_motion(self) -> tuple:
+    def find_motion(self) -> Tuple[Optional[bool], str, Tuple[str, ...]]:
         """
         Main loop. Find motion in frames.
         """
@@ -970,7 +970,7 @@ class ClockTime(object):
             self.__gt__(other)
 
 
-def run_vid(filename: Union[str, int], **kwargs) -> tuple:
+def run_vid(filename: Union[str, int], **kwargs) -> Tuple[Optional[bool], Union[str, int], Optional[str], Optional[Tuple[str, ...]]]:
     """
     Video creation and runner function to pass to multiprocessing pool
     """
@@ -1077,7 +1077,7 @@ def run_map(job: Callable, files: Iterable[str], pbar: Union[ProgressBar, DummyP
 
     log.debug('Processing each file one-by-one')
 
-    files_processed: Iterable[str] = map(job, files)
+    files_processed: Iterable[Tuple[Optional[bool], Union[str, int], Optional[str], Optional[Tuple[str, ...]]]] = map(job, files)
     done: int = 0
 
     try:

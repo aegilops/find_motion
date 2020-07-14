@@ -141,7 +141,7 @@ class VideoError(Exception):
     """
     An error when processing a video
     """
-    def __init__(self, _msg):
+    def __init__(self, _msg) -> None:
         super()
 
 
@@ -204,8 +204,7 @@ class VideoFrame(object):
         self.threshold_value = threshold
         self.box_size = box_size
 
-
-        self.frame: Optional[np_ndarray] = self.raw.copy() if self.show else None    # TODO: work out how to remove this if show is False and still have things work
+        self.frame: Optional[np_ndarray] = self.raw.copy() if self.show else None
         self.in_cache: bool = False
         self.contours: List = []
         self.frame_delta: np_ndarray = None
@@ -585,13 +584,13 @@ class VideoMotion(object):
         return self.cap.isOpened()
 
     @staticmethod
-    def scale_area(area: Tuple[Tuple[int, int], Tuple[int, int]], scale: float) -> list:
+    def scale_area(area: Tuple[Tuple[int, int], Tuple[int, int]], scale: float) -> List:
         """
         Scale the area by the scale factor
         """
         return [(int(a[0] * scale), int(a[1] * scale)) for a in area]
 
-    def mask_off_areas(self, frame: VideoFrame=None):
+    def mask_off_areas(self, frame: VideoFrame=None) -> None:
         """
         Draw black polygons over the masked off areas
         """
@@ -892,7 +891,7 @@ def verify_files(file_list: List[str]) -> List[str]:
     return [os.path.normpath(os.path.abspath(f)) for f in file_list if os.path.isfile(f)]
 
 
-def sort_files_by_time(file_list: List[str], priority_intervals: List[Tuple[time.struct_time, time.struct_time]]) -> OrderedSet:
+def sort_files_by_time(file_list: List[str], priority_intervals: List[Tuple[time.struct_time, time.struct_time]]) -> OrderedSet[str]:
     """
     Sort files by modified time.
 
@@ -906,7 +905,7 @@ def sort_files_by_time(file_list: List[str], priority_intervals: List[Tuple[time
     """
     sorted_files: List[Tuple[str, float]] = [f for f in sorted([(f, os.path.getmtime(f)) for f in file_list], key=lambda f: f[1])]
 
-    file_set: OrderedSet = OrderedSet()
+    file_set: OrderedSet[str] = OrderedSet()
 
     for time_interval in priority_intervals:
         for vid_file in sorted_files:
@@ -992,7 +991,7 @@ def run_vid(filename: Union[str, int], **kwargs) -> Tuple[Optional[bool], Union[
     return (wrote_frames, filename, err_msg, seen_objects)
 
 
-def get_progress(log_file: str) -> set:
+def get_progress(log_file: str) -> Set[str]:
     """
     Load the progress log file, get the list of files
 
@@ -1155,7 +1154,7 @@ def run_stream(job: Callable, processes: int, cameras: List[int], progress_log: 
             pool.terminate()
 
 
-def test_files(files):
+def test_files(files) -> None:
     for f in files:
         log.debug("{}: {}".format(f[0], datetime.fromtimestamp(f[1]).isoformat()))
         try:
@@ -1172,7 +1171,7 @@ def test_stream(cameras) -> None:
             log.error("Failed to open camera {}: {}".format(camera, e))
 
 
-def main():
+def main() -> None:
     """
     Main app entry point
     """
@@ -1187,7 +1186,7 @@ def main():
     run(args, parser.print_help)
 
 
-def make_pbar_widgets(num_files: int) -> list:
+def make_pbar_widgets(num_files: int) -> List:
     """
     Create progressbar widgets
     """
@@ -1211,7 +1210,7 @@ def make_progressbar(progress: bool=False, num_files: int=0) -> ProgressBar:
                        ) if progress else DUMMY_PROGRESS_BAR
 
 
-def read_masks(masks_file: str) -> list:
+def read_masks(masks_file: str) -> List:
     try:
         with open(masks_file, 'r') as mf:
             masks = json.load(mf)
@@ -1332,9 +1331,9 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
 
 
 # TODO: fix ignore_drive
-def process_progress(files: OrderedSet, log_file: str, ignore_drive: bool=False):
+def process_progress(files: OrderedSet[str], log_file: str, ignore_drive: bool=False) -> OrderedSet[str]:
     found_files_num = len(files)
-    done_files = get_progress(log_file)
+    done_files: Set[str] = get_progress(log_file)
     log.debug("{} done files".format(str(len(done_files))))
     if not ignore_drive:
         files = OrderedSet([f for f in files if f[0] not in done_files])

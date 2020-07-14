@@ -83,6 +83,7 @@ DUMMY_PROGRESS_BAR: DummyProgressBar = DummyProgressBar()
 
 # Color constants
 BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
 RED = (0, 0, 255)
 GREEN = (0, 255, 0)
 BLUE = (255, 0, 0)
@@ -215,12 +216,29 @@ class VideoFrame(object):
         self.blur: np_ndarray = None
         self.resized: np_ndarray = None
 
-    def show_rgb(self, channel_initials = list('BGR')) -> None:
+    def show_rgb(self, channel_initials=list('BGR')) -> None:
         """Show red, green and blue channels."""
         for channel_index in range(3):
             channel = np_zeros(shape=self.raw.shape, dtype=np_uint8)
-            channel[:,:,channel_index] = self.raw[:,:,channel_index]
+            channel[:, :, channel_index] = self.raw[:, :, channel_index]
             cv2.imshow(f'{channel_initials[channel_index]}-RGB', channel)
+
+    def show_bgrn(self) -> None:
+        dominant = np_zeros(shape=self.raw.shape, dtype=np_uint8)
+        for i in range(self.raw.shape[0]):
+            for j in range(self.raw.shape[1]):
+                k = self.raw[i, j]
+                if k[0] > k[1] and k[0] > k[2]:
+                    dominant[i, j] = BLUE
+                    continue
+                if k[1] > k[0] and k[1] > k[2]:
+                    dominant[i, j] = GREEN
+                    continue
+                if k[2] > k[0] and k[2] > k[1]:
+                    dominant[i, j] = RED
+                    continue
+                dominant[i, j] = WHITE
+        cv2.imshow("Dominant colors", dominant)
 
     def diff(self, ref_frame) -> None:
         """
@@ -880,7 +898,7 @@ class VideoMotion(object):
                 if cf.raw is not None:
                     self.log.debug('Showing raw frame')
                     cv2.imshow('raw', cf.raw)
-                cf.show_rgb()
+                cf.show_bgrn()
             except Exception as e:
                 self.log.error('Oops: {}'.format(e))
         else:

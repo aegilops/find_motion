@@ -226,19 +226,19 @@ class VideoFrame(object):
             channel[:, :, channel_index] = self.raw[:, :, channel_index]
             cv2.imshow(f'{channel_initials[channel_index]}-RGB', channel)
 
-    def make_bgrn(self) -> None:
+    def make_bgrn(self, margin=5) -> None:
         self.dominant = np_zeros(shape=self.mini.shape, dtype=np_uint8)
         self.mini_blur = cv2.GaussianBlur(self.mini, self.gaussian, 0)
         for i in range(self.mini.shape[0]):
             for j in range(self.mini.shape[1]):
                 k = self.mini_blur[i, j]
-                if k[0] > k[1] and k[0] > k[2]:
+                if k[0] > k[1] + margin and k[0] > k[2] + margin:
                     self.dominant[i, j] = BLUE
                     continue
-                if k[1] > k[0] and k[1] > k[2]:
+                if k[1] > k[0] + margin and k[1] > k[2] + margin:
                     self.dominant[i, j] = GREEN
                     continue
-                if k[2] > k[0] and k[2] > k[1]:
+                if k[2] > k[0] + margin and k[2] > k[1] + margin:
                     self.dominant[i, j] = RED
                     continue
                 if k[0] > 64:

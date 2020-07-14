@@ -62,6 +62,8 @@ warnings.filterwarnings("ignore", r"Passing \(type, 1\) or '1type' as a synonym 
 from numpy import array as np_array
 from numpy import int32 as np_int32
 from numpy import ndarray as np_ndarray
+from numpy import zeros as np_zeros
+from numpy import uint8 as np_uint8
 
 import cv2
 import imutils
@@ -212,6 +214,13 @@ class VideoFrame(object):
         self.thresh: np_ndarray = None
         self.blur: np_ndarray = None
         self.resized: np_ndarray = None
+
+    def show_rgb(self, channel_initials = list('BGR')) -> None:
+        """Show red, green and blue channels."""
+        for channel_index in range(3):
+            channel = np_zeros(shape=self.raw.shape, dtype=np_uint8)
+            channel[:,:,channel_index] = self.raw[:,:,channel_index]
+            cv2.imshow(f'{channel_initials[channel_index]}-RGB', channel)
 
     def diff(self, ref_frame) -> None:
         """
@@ -871,6 +880,7 @@ class VideoMotion(object):
                 if cf.raw is not None:
                     self.log.debug('Showing raw frame')
                     cv2.imshow('raw', cf.raw)
+                cf.show_rgb()
             except Exception as e:
                 self.log.error('Oops: {}'.format(e))
         else:
@@ -891,7 +901,7 @@ def verify_files(file_list: List[str]) -> List[str]:
     return [os.path.normpath(os.path.abspath(f)) for f in file_list if os.path.isfile(f)]
 
 
-def sort_files_by_time(file_list: List[str], priority_intervals: List[Tuple[time.struct_time, time.struct_time]]) -> OrderedSet[str]:
+def sort_files_by_time(file_list: List[str], priority_intervals: List[Tuple[time.struct_time, time.struct_time]]) -> "OrderedSet[str]":
     """
     Sort files by modified time.
 
@@ -905,7 +915,7 @@ def sort_files_by_time(file_list: List[str], priority_intervals: List[Tuple[time
     """
     sorted_files: List[Tuple[str, float]] = [f for f in sorted([(f, os.path.getmtime(f)) for f in file_list], key=lambda f: f[1])]
 
-    file_set: OrderedSet[str] = OrderedSet()
+    file_set: "OrderedSet[str]" = OrderedSet()
 
     for time_interval in priority_intervals:
         for vid_file in sorted_files:
@@ -1331,7 +1341,7 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
 
 
 # TODO: fix ignore_drive
-def process_progress(files: OrderedSet[str], log_file: str, ignore_drive: bool=False) -> OrderedSet[str]:
+def process_progress(files: "OrderedSet[str]", log_file: str, ignore_drive: bool=False) -> "OrderedSet[str]":
     found_files_num = len(files)
     done_files: Set[str] = get_progress(log_file)
     log.debug("{} done files".format(str(len(done_files))))

@@ -1,5 +1,5 @@
 all: flake8 mypy bandit diatra safety vulture pyright dlint pytype
-.PHONY: flake8 mypy all bandit diatra safety vulture pyright dlint pytype install
+.PHONY: flake8 mypy all bandit diatra safety vulture pyright dlint pytype install dev-requirements
 
 flake8:
 	flake8 --ignore=E501,E303,E402,E252
@@ -27,6 +27,9 @@ dlint:
 
 pytype:
 	pytype .
+
+dev-requirements:
+	python3 -m pip install -r make_requirements.txt --upgrade
 
 install:
 	python3 -m pip install .

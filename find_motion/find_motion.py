@@ -42,7 +42,7 @@ import json
 from jsonschema import validate
 from time import strptime
 
-import typing
+from typing import List, Dict, Any, Union, Optional, Tuple, Deque, Set, Callable, Iterable, IO
 
 from collections import deque
 import copy
@@ -150,7 +150,7 @@ class VideoInfo(object):
     Class to read in a video, and get metadata out
     """
     def __init__(self, filename: str=None, log_level=logging.INFO) -> None:
-        self.filename: typing.Optional[str] = filename
+        self.filename: Optional[str] = filename
         self.cap: cv2.VideoCapture = None
         self.amount_of_frames: int = 0
         self.frame_width: int = 0
@@ -195,19 +195,19 @@ class VideoFrame(object):
     """
     encapsulate frame stuff here, out of main video class
     """
-    def __init__(self, frame, show: bool, gaussian: typing.Tuple[int, int], mask_areas: typing.List[typing.Any], scale:float = 1.0, threshold: int = None, box_size: int = None) -> None:
+    def __init__(self, frame, show: bool, gaussian: Tuple[int, int], mask_areas: List[Any], scale: float = 1.0, threshold: int = None, box_size: int = None) -> None:
         self.raw: np_ndarray = frame
         self.show: bool = show
-        self.gaussian: typing.Tuple[int, int] = gaussian
+        self.gaussian: Tuple[int, int] = gaussian
         self.mask_areas = mask_areas
         self.scale: float = scale
         self.threshold_value = threshold
         self.box_size = box_size
 
 
-        self.frame: typing.Optional[np_ndarray] = self.raw.copy() if self.show else None    # TODO: work out how to remove this if show is False and still have things work
+        self.frame: Optional[np_ndarray] = self.raw.copy() if self.show else None    # TODO: work out how to remove this if show is False and still have things work
         self.in_cache: bool = False
-        self.contours: typing.List = []
+        self.contours: List = []
         self.frame_delta: np_ndarray = None
         self.gray: np_ndarray = None
         self.thresh: np_ndarray = None
@@ -283,14 +283,14 @@ class VideoMotion(object):
     Class to read in a video, detect motion in it, and write out just the motion to a new file
     """
     # pylint: disable=too-many-instance-attributes,too-many-arguments
-    def __init__(self, filename: typing.Union[str, int]=None, outdir: str='', fps: int=30,
+    def __init__(self, filename: Union[str, int]=None, outdir: str='', fps: int=30,
                  box_size: int=100, min_box_scale: int=50, cache_time: float=2.0, min_time: float=0.5,
                  threshold: int=7, avg: float=0.1, blur_scale: int=20,
                  mask_areas: list=None, show: bool=False,
                  codec: str='MJPG', log_level: int=logging.INFO,
                  mem: bool=False, cleanup: bool=False,
                  multiprocess: bool=False,
-                 cascades: typing.List[str]=None,
+                 cascades: List[str]=None,
                  yolo_tiny: bool=False,
                  no_object_detection: bool=False) -> None:
         self.filename = filename
@@ -323,14 +323,14 @@ class VideoMotion(object):
         self.min_movement_frames: int = int(min_time * fps)
         self.delta_thresh: int = threshold
         self.avg: float = avg
-        self.mask_areas: typing.List[typing.Any] = mask_areas if mask_areas is not None else []
+        self.mask_areas: List[Any] = mask_areas if mask_areas is not None else []
         self.show: bool = show
-        
+
         self.log.debug('Caching {} frames, min motion {} frames'.format(self.cache_frames, self.min_movement_frames))
 
         self.no_object_detection: bool = no_object_detection
-        self.cascade_names: typing.Optional[typing.List[str]] = cascades if not self.no_object_detection else []
-        self.cascades: typing.Optional[typing.Dict[str, typing.Any]] = None
+        self.cascade_names: Optional[List[str]] = cascades if not self.no_object_detection else []
+        self.cascades: Optional[Dict[str, Any]] = None
         self._load_cascades()
         self.log.debug(str(self.cascades))
         self.tiny = yolo_tiny
@@ -349,10 +349,10 @@ class VideoMotion(object):
         self.scale: float = -1.0
 
         self.current_frame: VideoFrame
-        self.ref_frame: typing.Optional[VideoFrame]
-        self.frame_cache: typing.Deque[VideoFrame]
+        self.ref_frame: Optional[VideoFrame]
+        self.frame_cache: Deque[VideoFrame]
 
-        self.wrote_frames: typing.Optional[bool] = False
+        self.wrote_frames: Optional[bool] = False
         self.err_msg: str = ''
 
         self.movement: bool = False
@@ -360,8 +360,8 @@ class VideoMotion(object):
         self.movement_counter: int = 0
 
         self.object_counter: int = 0
-        self.last_objects: typing.Dict[str, typing.List] = {}
-        self.seen_objects: typing.Set[str] = set()
+        self.last_objects: Dict[str, List] = {}
+        self.seen_objects: Set[str] = set()
 
         # Initialisation functions
         self._calc_min_area()
@@ -585,7 +585,7 @@ class VideoMotion(object):
         return self.cap.isOpened()
 
     @staticmethod
-    def scale_area(area: typing.Tuple[typing.Tuple[int, int], typing.Tuple[int, int]], scale: float) -> list:
+    def scale_area(area: Tuple[Tuple[int, int], Tuple[int, int]], scale: float) -> list:
         """
         Scale the area by the scale factor
         """
@@ -661,7 +661,7 @@ class VideoMotion(object):
 
         return
 
-    def find_objects(self, frame: VideoFrame=None, width=300, skip=15, scaleFactor=1.1, minNeighbours=5, confidence=0.25) -> typing.Set[str]:
+    def find_objects(self, frame: VideoFrame=None, width=300, skip=15, scaleFactor=1.1, minNeighbours=5, confidence=0.25) -> Set[str]:
         frame = self.current_frame if frame is None else frame
 
         frame.resized = imutils.resize(frame.raw, width=width)
@@ -722,7 +722,7 @@ class VideoMotion(object):
                 self.log.debug('{} found'.format(title))
 
     @staticmethod
-    def find_centre(area: typing.List) -> typing.Tuple[int, int]:
+    def find_centre(area: List) -> Tuple[int, int]:
         return (
             (area[0][0] + area[1][0]) // 2,
             (area[0][1] + area[1][1]) // 2
@@ -742,7 +742,7 @@ class VideoMotion(object):
                         0.5, RED, 2)
         return
 
-    def make_box(self, contour, frame: VideoFrame=None) -> typing.Tuple[typing.Tuple[int, int], typing.Tuple[int, int]]:
+    def make_box(self, contour, frame: VideoFrame=None) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         """
         Draw a green bounding box on the frame
         """
@@ -750,14 +750,14 @@ class VideoMotion(object):
         return VideoMotion.make_area_from_rect(cv2.boundingRect(contour))
 
     @staticmethod
-    def make_area_from_box(object_tuple: typing.Tuple[typing.Any, ...]) -> typing.Tuple[typing.Tuple[int, int], typing.Tuple[int, int]]:
+    def make_area_from_box(object_tuple: Tuple[Any, ...]) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         # pylint: disable=invalid-name
         (x1, y1, x2, y2) = object_tuple
         area = ((x1, y1), (x2, y2))
         return area
 
     @staticmethod
-    def make_area_from_rect(object_tuple: typing.Tuple[int, int, int, int]) -> typing.Tuple[typing.Tuple[int, int], typing.Tuple[int, int]]:
+    def make_area_from_rect(object_tuple: Tuple[int, int, int, int]) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         # pylint: disable=invalid-name
         (x, y, w, h) = object_tuple
         area = ((x, y), (x + w, y + h))
@@ -878,21 +878,21 @@ class VideoMotion(object):
             self.log.warning('Not showing frames, height or width is 0')
 
 
-def find_files(directory: str) -> typing.List[str]:
+def find_files(directory: str) -> List[str]:
     """
     Finds files in the directory, recursively, sorts them by last modified time
     """
     return [os.path.normpath(os.path.abspath(os.path.join(dirpath, f))) for dirpath, _dnames, fnames in os.walk(directory) for f in fnames if f != 'progress.log'] if directory is not None else []
 
 
-def verify_files(file_list: typing.List[str]) -> typing.List[str]:
+def verify_files(file_list: List[str]) -> List[str]:
     """
     Locates files with given file names, returns in a list of tuples with their last modified time
     """
     return [os.path.normpath(os.path.abspath(f)) for f in file_list if os.path.isfile(f)]
 
 
-def sort_files_by_time(file_list: typing.List[str], priority_intervals: typing.List[typing.Tuple[time.struct_time, time.struct_time]]) -> OrderedSet:
+def sort_files_by_time(file_list: List[str], priority_intervals: List[Tuple[time.struct_time, time.struct_time]]) -> OrderedSet:
     """
     Sort files by modified time.
 
@@ -904,7 +904,7 @@ def sort_files_by_time(file_list: typing.List[str], priority_intervals: typing.L
 
     Repeat until we get to the end of the intervals, then put any remaining files onto the set in order.
     """
-    sorted_files: typing.List[typing.Tuple[str, float]] = [f for f in sorted([(f, os.path.getmtime(f)) for f in file_list], key=lambda f: f[1])]
+    sorted_files: List[Tuple[str, float]] = [f for f in sorted([(f, os.path.getmtime(f)) for f in file_list], key=lambda f: f[1])]
 
     file_set: OrderedSet = OrderedSet()
 
@@ -924,7 +924,7 @@ def sort_files_by_time(file_list: typing.List[str], priority_intervals: typing.L
     return file_set
 
 
-def in_interval(vid_file: typing.Tuple[str, float], time_interval: typing.Tuple[time.struct_time, time.struct_time]) -> bool:
+def in_interval(vid_file: Tuple[str, float], time_interval: Tuple[time.struct_time, time.struct_time]) -> bool:
     """
     Check if the mtime (epoch) of the file is in the time interval given
     """
@@ -970,7 +970,7 @@ class ClockTime(object):
             self.__gt__(other)
 
 
-def run_vid(filename: typing.Union[str, int], **kwargs) -> tuple:
+def run_vid(filename: Union[str, int], **kwargs) -> tuple:
     """
     Video creation and runner function to pass to multiprocessing pool
     """
@@ -1006,7 +1006,7 @@ def get_progress(log_file: str) -> set:
         return set()
 
 
-def run_pool(job: typing.Callable[..., typing.Any], processes: int, files: typing.Iterable[str]=None, pbar: typing.Union[ProgressBar, DummyProgressBar]=DUMMY_PROGRESS_BAR, progress_log: typing.IO[str]=None) -> None:
+def run_pool(job: Callable[..., Any], processes: int, files: Iterable[str]=None, pbar: Union[ProgressBar, DummyProgressBar]=DUMMY_PROGRESS_BAR, progress_log: IO[str]=None) -> None:
     """
     Create and run a pool of workers
 
@@ -1017,7 +1017,7 @@ def run_pool(job: typing.Callable[..., typing.Any], processes: int, files: typin
 
     num_files: int = len(list(files))
     done: int = 0
-    files_written: typing.Set = set()
+    files_written: Set = set()
     results: list = []
 
     pool = None
@@ -1071,13 +1071,13 @@ def run_pool(job: typing.Callable[..., typing.Any], processes: int, files: typin
         pool.terminate()
 
 
-def run_map(job: typing.Callable, files: typing.Iterable[str], pbar: typing.Union[ProgressBar, DummyProgressBar]=DUMMY_PROGRESS_BAR, progress_log: typing.IO[str]=None) -> None:
+def run_map(job: Callable, files: Iterable[str], pbar: Union[ProgressBar, DummyProgressBar]=DUMMY_PROGRESS_BAR, progress_log: IO[str]=None) -> None:
     if not files:
         raise ValueError('More than 0 files needed')
 
     log.debug('Processing each file one-by-one')
 
-    files_processed: typing.Iterable[str] = map(job, files)
+    files_processed: Iterable[str] = map(job, files)
     done: int = 0
 
     try:
@@ -1098,7 +1098,7 @@ def run_map(job: typing.Callable, files: typing.Iterable[str], pbar: typing.Unio
         log.warning('Ending processing at user request')
 
 
-def run_stream(job: typing.Callable, processes: int, cameras: typing.List[int], progress_log: typing.IO[str]=None) -> None:
+def run_stream(job: Callable, processes: int, cameras: List[int], progress_log: IO[str]=None) -> None:
     if not cameras:
         raise ValueError('More than 0 cameras needed')
 
@@ -1106,7 +1106,7 @@ def run_stream(job: typing.Callable, processes: int, cameras: typing.List[int], 
 
     num_cameras: int = len(list(cameras))
     done: int = 0
-    files_written: typing.Set = set()
+    files_written: Set = set()
     results: list = []
     pool = None
 
@@ -1233,7 +1233,7 @@ def set_log_file(input_dir: str=None, output_dir: str=None) -> str:
     return os.path.normpath(os.path.join(output_dir if output_dir is not None else input_dir if input_dir is not None else '.', 'progress.log'))
 
 
-def run(args: Namespace, print_help: typing.Callable=lambda x: None) -> None:
+def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
     """
     Secondary entry point to allow running from a different app using an argparse Namespace
     """
@@ -1293,7 +1293,7 @@ def run(args: Namespace, print_help: typing.Callable=lambda x: None) -> None:
             log.debug(str(time_order))
 
             # find files on disk
-            in_files: typing.List[str] = verify_files(args.files)
+            in_files: List[str] = verify_files(args.files)
             in_files.extend(find_files(args.input_dir))
 
             # sort them
@@ -1317,7 +1317,7 @@ def run(args: Namespace, print_help: typing.Callable=lambda x: None) -> None:
                 test_files(files)
                 sys.exit(0)
 
-            do_files: typing.List[str] = [f[0] for f in files]
+            do_files: List[str] = [f[0] for f in files]
 
             with make_progressbar(args.progress, num_files) as pbar:
                 pbar.update(0)
@@ -1344,16 +1344,16 @@ def process_progress(files: OrderedSet, log_file: str, ignore_drive: bool=False)
     return files
 
 
-def process_times(time_order: typing.List[str]) -> typing.List[typing.Tuple[time.struct_time, time.struct_time]]:
-    times: typing.List[typing.Tuple[time.struct_time, time.struct_time]] = []
+def process_times(time_order: List[str]) -> List[Tuple[time.struct_time, time.struct_time]]:
+    times: List[Tuple[time.struct_time, time.struct_time]] = []
 
     if time_order is None:
         return times
 
     for time_slot in time_order:
         try:
-            res: typing.List[time.struct_time] = list(map(lambda t: strptime(t, '%H:%M'), time_slot.split('-')))
-            interval: typing.Tuple[time.struct_time, time.struct_time] = (res[0], res[1])
+            res: List[time.struct_time] = list(map(lambda t: strptime(t, '%H:%M'), time_slot.split('-')))
+            interval: Tuple[time.struct_time, time.struct_time] = (res[0], res[1])
         except ValueError as e:
             log.error('Time interval {} misparsed: {}'.format(time_slot, e))
             continue
@@ -1371,7 +1371,7 @@ def process_config(config_file: str, args: Namespace) -> Namespace:
     config.read(config_file)
     for setting, value in config['settings'].items():
         setting = setting.replace('-', '_')
-        use_value: typing.Any = value
+        use_value: Any = value
         if setting in ('processes', 'blur_scale', 'min_box_scale', 'threshold', 'fps', 'box_size'):
             use_value = int(value)
         if setting in ('mintime', 'cachetime', 'avg'):

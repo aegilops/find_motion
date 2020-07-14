@@ -211,6 +211,9 @@ class VideoFrame(object):
         self.in_cache: bool = False
         self.contours: List = []
         self.frame_delta: np_ndarray = None
+        self.mini: np_ndarray = None
+        self.dominant: np_ndarray = None
+        self.mini_blur: np_ndarray = None
         self.gray: np_ndarray = None
         self.thresh: np_ndarray = None
         self.blur: np_ndarray = None
@@ -223,24 +226,27 @@ class VideoFrame(object):
             channel[:, :, channel_index] = self.raw[:, :, channel_index]
             cv2.imshow(f'{channel_initials[channel_index]}-RGB', channel)
 
-    def show_bgrn(self) -> None:
-        dominant = np_zeros(shape=self.raw.shape, dtype=np_uint8)
-        for i in range(self.raw.shape[0]):
-            for j in range(self.raw.shape[1]):
-                k = self.raw[i, j]
+    def make_bgrn(self) -> None:
+        self.dominant = np_zeros(shape=self.mini.shape, dtype=np_uint8)
+        self.mini_blur = cv2.GaussianBlur(self.mini, self.gaussian, 0)
+        for i in range(self.mini.shape[0]):
+            for j in range(self.mini.shape[1]):
+                k = self.mini_blur[i, j]
                 if k[0] > k[1] and k[0] > k[2]:
-                    dominant[i, j] = BLUE
+                    self.dominant[i, j] = BLUE
                     continue
                 if k[1] > k[0] and k[1] > k[2]:
-                    dominant[i, j] = GREEN
+                    self.dominant[i, j] = GREEN
                     continue
                 if k[2] > k[0] and k[2] > k[1]:
-                    dominant[i, j] = RED
+                    self.dominant[i, j] = RED
                     continue
-                dominant[i, j] = WHITE
-        cv2.imshow("Dominant colors", dominant)
+                if k[0] > 64:
+                    self.dominant[i, j] = WHITE
+                    continue
+                self.dominant[i, j] = BLACK
 
-    def diff(self, ref_frame) -> None:
+    def diff(self, ref_frame: np_ndarray) -> None:
         """
         Find the diff between this frame and the reference frame
         """
@@ -271,9 +277,10 @@ class VideoFrame(object):
         self.contours = cnts
 
     def blur_frame(self) -> None:
-        small = imutils.resize(self.raw, width=self.box_size)
-        self.gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        self.mini = imutils.resize(self.raw, width=self.box_size)
+        self.gray = cv2.cvtColor(self.mini, cv2.COLOR_BGR2GRAY)
         self.blur = cv2.GaussianBlur(self.gray, self.gaussian, 0)
+        self.make_bgrn()
 
     def mask_off_areas(self) -> None:
         for area in self.mask_areas:
@@ -375,7 +382,7 @@ class VideoMotion(object):
         self.scale: float = -1.0
 
         self.current_frame: VideoFrame
-        self.ref_frame: Optional[VideoFrame]
+        self.ref_frame: np_ndarray = None
         self.frame_cache: Deque[VideoFrame]
 
         self.wrote_frames: Optional[bool] = False
@@ -423,7 +430,6 @@ class VideoMotion(object):
         Open the input video file, set up the ref frame and frame cache, get the video info and set the scale
         """
         self.cap = cv2.VideoCapture(self.filename)
-        self.ref_frame = None
         self.frame_cache = deque(maxlen=self.cache_frames)
 
         try:
@@ -865,6 +871,9 @@ class VideoMotion(object):
 
             if self.show:
                 self.show_frames()
+                if self.ref_frame is not None:
+                    self.log.debug('Showing ref frame')
+                    cv2.imshow('avg', self.ref_frame)
 
             self.log.debug('Decided to show frames or not')
 
@@ -898,7 +907,8 @@ class VideoMotion(object):
                 if cf.raw is not None:
                     self.log.debug('Showing raw frame')
                     cv2.imshow('raw', cf.raw)
-                cf.show_bgrn()
+                if cf.dominant is not None:
+                    cv2.imshow("Dominant colors", cf.dominant)
             except Exception as e:
                 self.log.error('Oops: {}'.format(e))
         else:

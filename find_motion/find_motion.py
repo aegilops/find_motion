@@ -64,6 +64,7 @@ from numpy import int32 as np_int32
 from numpy import ndarray as np_ndarray
 from numpy import zeros as np_zeros
 from numpy import uint8 as np_uint8
+from numpy import float32 as np_float32
 
 import cv2
 import imutils
@@ -84,6 +85,7 @@ DUMMY_PROGRESS_BAR: DummyProgressBar = DummyProgressBar()
 # Color constants
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
+GRAY = (127, 127, 127)
 RED = (0, 0, 255)
 GREEN = (0, 255, 0)
 BLUE = (255, 0, 0)
@@ -226,12 +228,15 @@ class VideoFrame(object):
             channel[:, :, channel_index] = self.raw[:, :, channel_index]
             cv2.imshow(f'{channel_initials[channel_index]}-RGB', channel)
 
-    def make_bgrn(self, margin=5) -> None:
+    def make_bgrn(self) -> None:
         self.dominant = np_zeros(shape=self.mini.shape, dtype=np_uint8)
         self.mini_blur = cv2.GaussianBlur(self.mini, self.gaussian, 0)
+        mean_brightness: int = int(cv2.mean(self.mini_blur)[0])
+        margin: int = int(mean_brightness / 10)
+
         for i in range(self.mini.shape[0]):
             for j in range(self.mini.shape[1]):
-                k = self.mini_blur[i, j]
+                k: Tuple[np_uint8, np_uint8, np_uint8] = self.mini_blur[i, j]
                 if k[0] > k[1] + margin and k[0] > k[2] + margin:
                     self.dominant[i, j] = BLUE
                     continue
@@ -241,16 +246,19 @@ class VideoFrame(object):
                 if k[2] > k[0] + margin and k[2] > k[1] + margin:
                     self.dominant[i, j] = RED
                     continue
-                if k[0] > 64:
+                if k[0] > mean_brightness + margin:
                     self.dominant[i, j] = WHITE
                     continue
-                self.dominant[i, j] = BLACK
+                if k[0] < mean_brightness - margin:
+                    self.dominant[i, j] = BLACK
+                    continue
+                self.dominant[i, j] = GRAY
 
     def diff(self, ref_frame: np_ndarray) -> None:
         """
         Find the diff between this frame and the reference frame
         """
-        self.frame_delta = cv2.absdiff(self.blur, cv2.convertScaleAbs(ref_frame))
+        self.frame_delta = cv2.absdiff(self.blur, ref_frame)
 
     def threshold(self) -> None:
         """
@@ -383,6 +391,7 @@ class VideoMotion(object):
 
         self.current_frame: VideoFrame
         self.ref_frame: np_ndarray = None
+        self.ref_scaled: np_ndarray = None
         self.frame_cache: Deque[VideoFrame]
 
         self.wrote_frames: Optional[bool] = False
@@ -644,14 +653,18 @@ class VideoMotion(object):
             raise Exception("Blur frame is None")
         else:
             if self.ref_frame is None:
-                self.ref_frame = frame.blur.copy().astype("float")  # pytype: disable=attribute-error
+                self.ref_frame = frame.blur.copy().astype(np_float32)     # pytype: disable=attribute-error
 
             # compute the absolute difference between the current frame and ref frame
-            frame.diff(self.ref_frame)
+            self.ref_scaled = cv2.convertScaleAbs(self.ref_frame)
+            frame.diff(self.ref_scaled)
             frame.threshold()
 
             # update reference frame using weighted average
             cv2.accumulateWeighted(frame.blur, self.ref_frame, self.avg)
+
+            if self.show:
+                cv2.imshow("ref", self.ref_scaled)
 
             # find contours from the diff data
             frame.find_contours()
@@ -871,9 +884,9 @@ class VideoMotion(object):
 
             if self.show:
                 self.show_frames()
-                if self.ref_frame is not None:
+                if self.ref_scaled is not None:
                     self.log.debug('Showing ref frame')
-                    cv2.imshow('avg', self.ref_frame)
+                    cv2.imshow('avg', self.ref_scaled)
 
             self.log.debug('Decided to show frames or not')
 

@@ -212,7 +212,9 @@ class VideoFrame(object):
         self.frame: Optional[np_ndarray] = self.raw.copy() if self.show else None
         self.in_cache: bool = False
         self.contours: List = []
+        self.color_contours: List = []
         self.frame_delta: np_ndarray = None
+        self.color_delta: np_ndarray = None
         self.mini: np_ndarray = None
         self.dominant: np_ndarray = None
         self.mini_blur: np_ndarray = None
@@ -232,7 +234,7 @@ class VideoFrame(object):
         self.dominant = np_zeros(shape=self.mini.shape, dtype=np_uint8)
         self.mini_blur = cv2.GaussianBlur(self.mini, self.gaussian, 0)
         mean_brightness: int = int(cv2.mean(self.mini_blur)[0])
-        margin: int = int(mean_brightness / 10)
+        margin: int = int(mean_brightness / 7) # TODO: configure magic number
 
         for i in range(self.mini.shape[0]):
             for j in range(self.mini.shape[1]):
@@ -254,23 +256,26 @@ class VideoFrame(object):
                     continue
                 self.dominant[i, j] = GRAY
 
-    def diff(self, ref_frame: np_ndarray) -> None:
+    def diff(self, ref_frame: np_ndarray, ref_color: np_ndarray) -> None:
         """
         Find the diff between this frame and the reference frame
         """
         self.frame_delta = cv2.absdiff(self.blur, ref_frame)
+        self.color_delta = cv2.absdiff(self.dominant, ref_color)
 
     def threshold(self) -> None:
         """
         Find the threshold of the diff
         """
         self.thresh = cv2.threshold(self.frame_delta, self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
+        # TODO: is this useful/correct?
+        self.color_thresh = cv2.threshold(self.color_delta, self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
 
     def find_contours(self) -> None:
         """
         Find edges of the shapes in the thresholded image
         """
-        # dilate the thresholded image to fill in holes, then find contours
+        # dilate the thresholded grayscale image to fill in holes, then find contours
         # on thresholded image
         self.thresh = cv2.dilate(self.thresh, kernel=None, iterations=2)
 
@@ -283,6 +288,18 @@ class VideoFrame(object):
             log.error(str(e))
             return
         self.contours = cnts
+
+        # TODO: work out how to do contours on the color image
+        if False:
+            try:
+                cnts, _hierarchy = cv2.findContours(
+                    self.color_thresh, mode=cv2.RETR_EXTERNAL,
+                    method=cv2.CHAIN_APPROX_SIMPLE
+                )[-2:]
+            except Exception as e:
+                log.error(str(e))
+                return
+            self.color_contours = cnts
 
     def blur_frame(self) -> None:
         self.mini = imutils.resize(self.raw, width=self.box_size)
@@ -392,6 +409,8 @@ class VideoMotion(object):
         self.current_frame: VideoFrame
         self.ref_frame: np_ndarray = None
         self.ref_scaled: np_ndarray = None
+        self.ref_color: np_ndarray = None
+        self.ref_color_scaled: np_ndarray = None
         self.frame_cache: Deque[VideoFrame]
 
         self.wrote_frames: Optional[bool] = False
@@ -649,22 +668,23 @@ class VideoMotion(object):
         """
         frame = self.current_frame if frame is None else frame
 
-        if frame.blur is None:
-            raise Exception("Blur frame is None")
+        if frame.blur is None or frame.dominant is None:
+            raise Exception("Blur or dominant color frame is None")
         else:
             if self.ref_frame is None:
                 self.ref_frame = frame.blur.copy().astype(np_float32)     # pytype: disable=attribute-error
+            if self.ref_color is None:
+                self.ref_color = frame.dominant.copy().astype(np_float32)
 
             # compute the absolute difference between the current frame and ref frame
             self.ref_scaled = cv2.convertScaleAbs(self.ref_frame)
-            frame.diff(self.ref_scaled)
+            self.ref_color_scaled = cv2.convertScaleAbs(self.ref_color)
+            frame.diff(self.ref_scaled, self.ref_color_scaled)
             frame.threshold()
 
             # update reference frame using weighted average
             cv2.accumulateWeighted(frame.blur, self.ref_frame, self.avg)
-
-            if self.show:
-                cv2.imshow("ref", self.ref_scaled)
+            cv2.accumulateWeighted(frame.dominant, self.ref_color, self.avg)
 
             # find contours from the diff data
             frame.find_contours()
@@ -698,11 +718,34 @@ class VideoMotion(object):
                     box = self.make_box(contour, frame)
                     self.draw_box(box, frame)
 
-                self.movement_counter += 1
+                self.movement = True
+
+        if frame.color_contours is not None and len(frame.color_contours) > 0:
+            # loop over the contours
+            for contour in frame.color_contours:
+                # if the contour is too small, ignore it
+                try:
+                    area = cv2.contourArea(contour)
+                except Exception as e:
+                    self.log.error(str(e))
+                    continue
+
+                if self.max_area < area < self.min_area:
+                    continue
+
+                # compute the bounding box for the contour, draw it on the frame,
+                # and update the text
+
+                if self.show:
+                    box = self.make_box(contour, frame)
+                    self.draw_box(box, frame)
+
                 self.movement = True
 
         if not self.movement:
             self.movement_counter = 0
+        else:
+            self.movement_counter += 1
 
         return
 
@@ -887,6 +930,7 @@ class VideoMotion(object):
                 if self.ref_scaled is not None:
                     self.log.debug('Showing ref frame')
                     cv2.imshow('avg', self.ref_scaled)
+                    cv2.imshow("avg color", self.ref_color)
 
             self.log.debug('Decided to show frames or not')
 
@@ -922,6 +966,12 @@ class VideoMotion(object):
                     cv2.imshow('raw', cf.raw)
                 if cf.dominant is not None:
                     cv2.imshow("Dominant colors", cf.dominant)
+                if cf.color_delta is not None:
+                    cv2.imshow("color delta", cf.color_delta)
+                if cf.color_thresh is not None:
+                    cv2.imshow("color thresh", cf.color_thresh)
+                if cf.frame_delta is not None:
+                    cv2.imshow("delta", cf.frame_delta)
             except Exception as e:
                 self.log.error('Oops: {}'.format(e))
         else:

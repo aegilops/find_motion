@@ -2,6 +2,8 @@
 
 Video processing Python 3 script to detect motion and objects, with tunable parameters.
 
+Uses brightness and color changes to spot movement against a relatively still background.
+
 Caches images for a few frames before and after it detects movement.
 
 With much help from OpenCV, https://www.pyimagesearch.com/ and https://cvlib.net/.
@@ -40,7 +42,7 @@ To reduce false motion from shadows, wind movement, noise, sun glare and so on, 
   How large the blurring of the image is during processing (larger sizes are slower, but less sensitive to tiny motions)
 * Masking
 
-  Areas to ignore. They are defined as tuples of coordinates. They can be provided as literals at the commandline or in a JSON file
+  Areas to ignore. They are defined as tuples of coordinates. They can be provided as literals at the command line or in a JSON file
   * square: `((0, 0), (100, 100))`
   * triangle: `((0, 0), (0, 100), (100, 0))`
   * JSON:

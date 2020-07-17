@@ -232,7 +232,6 @@ class VideoFrame(object):
 
     def make_bgrn(self) -> None:
         self.dominant = np_zeros(shape=self.mini.shape, dtype=np_uint8)
-        self.mini_blur = cv2.GaussianBlur(self.mini, self.gaussian, 0)
         mean_brightness: int = int(cv2.mean(self.mini_blur)[0])
         margin: int = int(mean_brightness / 7) # TODO: configure magic number
 
@@ -269,7 +268,8 @@ class VideoFrame(object):
         """
         self.thresh = cv2.threshold(self.frame_delta, self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
         # TODO: is this useful/correct?
-        self.color_thresh = cv2.threshold(self.color_delta, self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
+        grayImage = cv2.cvtColor(self.color_delta, cv2.COLOR_BGR2GRAY)
+        self.color_thresh = cv2.threshold(grayImage, self.threshold_value * 3, maxval=255, type=cv2.THRESH_BINARY)[1]
 
     def find_contours(self) -> None:
         """
@@ -290,22 +290,22 @@ class VideoFrame(object):
         self.contours = cnts
 
         # TODO: work out how to do contours on the color image
-        if False:
+        if True:
             try:
-                cnts, _hierarchy = cv2.findContours(
+                color_cnts, _hierarchy = cv2.findContours(
                     self.color_thresh, mode=cv2.RETR_EXTERNAL,
                     method=cv2.CHAIN_APPROX_SIMPLE
                 )[-2:]
             except Exception as e:
                 log.error(str(e))
                 return
-            self.color_contours = cnts
+            self.color_contours = color_cnts
 
     def blur_frame(self) -> None:
         self.mini = imutils.resize(self.raw, width=self.box_size)
         self.gray = cv2.cvtColor(self.mini, cv2.COLOR_BGR2GRAY)
         self.blur = cv2.GaussianBlur(self.gray, self.gaussian, 0)
-        self.make_bgrn()
+        self.mini_blur = cv2.GaussianBlur(self.mini, self.gaussian, 0)
 
     def mask_off_areas(self) -> None:
         for area in self.mask_areas:
@@ -315,11 +315,17 @@ class VideoFrame(object):
                 cv2.rectangle(self.blur,
                               *scaled_area,
                               BLACK, cv2.FILLED)
+                cv2.rectangle(self.mini_blur,
+                              *scaled_area,
+                              BLACK, cv2.FILLED)
             else:
                 pts = np_array(scaled_area, np_int32)
                 cv2.fillConvexPoly(self.blur,
                                    pts,
                                    BLACK)
+                cv2.fillConvexPoly(self.mini_blur,
+                    pts,
+                    BLACK)
 
     def cleanup(self) -> None:
         """
@@ -651,6 +657,13 @@ class VideoMotion(object):
         """
         return [(int(a[0] * scale), int(a[1] * scale)) for a in area]
 
+    def make_bgrn(self, frame: VideoFrame=None) -> None:
+        """
+        Draw black polygons over the masked off areas
+        """
+        frame = self.current_frame if frame is None else frame
+        frame.make_bgrn()
+
     def mask_off_areas(self, frame: VideoFrame=None) -> None:
         """
         Draw black polygons over the masked off areas
@@ -684,7 +697,7 @@ class VideoMotion(object):
 
             # update reference frame using weighted average
             cv2.accumulateWeighted(frame.blur, self.ref_frame, self.avg)
-            cv2.accumulateWeighted(frame.dominant, self.ref_color, self.avg)
+            cv2.accumulateWeighted(frame.dominant, self.ref_color, self.avg / 3)
 
             # find contours from the diff data
             frame.find_contours()
@@ -708,7 +721,10 @@ class VideoMotion(object):
                     self.log.error(str(e))
                     continue
 
-                if self.max_area < area < self.min_area:
+                if area > self.max_area:
+                    continue
+
+                if area < self.min_area:
                     continue
 
                 # compute the bounding box for the contour, draw it on the frame,
@@ -716,7 +732,7 @@ class VideoMotion(object):
 
                 if self.show:
                     box = self.make_box(contour, frame)
-                    self.draw_box(box, frame)
+                    self.draw_box(box, frame, GREEN)
 
                 self.movement = True
 
@@ -730,7 +746,10 @@ class VideoMotion(object):
                     self.log.error(str(e))
                     continue
 
-                if self.max_area < area < self.min_area:
+                if area < (self.min_area * 4):
+                    continue
+
+                if area > self.max_area:
                     continue
 
                 # compute the bounding box for the contour, draw it on the frame,
@@ -738,7 +757,7 @@ class VideoMotion(object):
 
                 if self.show:
                     box = self.make_box(contour, frame)
-                    self.draw_box(box, frame)
+                    self.draw_box(box, frame, BLUE)
 
                 self.movement = True
 
@@ -851,10 +870,10 @@ class VideoMotion(object):
         area = ((x, y), (x + w, y + h))
         return area
 
-    def draw_box(self, area, frame: VideoFrame=None) -> None:
+    def draw_box(self, area, frame: VideoFrame=None, color: Tuple[int, int, int]=GREEN) -> None:
         if self.show:
             frame = self.current_frame if frame is None else frame
-            cv2.rectangle(frame.frame, *VideoMotion.scale_area(area, 1 / self.scale), GREEN, 2)
+            cv2.rectangle(frame.frame, *VideoMotion.scale_area(area, 1 / self.scale), color, 2)
 
     @staticmethod
     def key_pressed(key: str) -> bool:
@@ -906,6 +925,7 @@ class VideoMotion(object):
 
             self.blur_frame()
             self.mask_off_areas()
+            self.make_bgrn()
             self.find_diff()
 
             self.log.debug('Blurred frame, masked off, and diff made')
@@ -1508,10 +1528,10 @@ def get_args(parser: ArgumentParser) -> None:
     parser.add_argument('--codec', '-k', default='MP42', help='Codec to write files with')
     parser.add_argument('--fps', '-f', type=int, default=30, help='Frames per second of input files')
 
-    parser.add_argument('--time_order', '-to', nargs='*', help='Time ranges in priority order for processing. Express as "HH:MM-HH:MM"')
+    parser.add_argument('--time-order', '-to', nargs='*', help='Time ranges in priority order for processing. Express as "HH:MM-HH:MM"')
 
     parser.add_argument('--masks', '-m', nargs='*', type=literal_eval, help='Areas to mask off in video')
-    parser.add_argument('--masks_file', help='File holding mask coordinates (JSON)')
+    parser.add_argument('--masks-file', '-mf', help='File holding mask coordinates (JSON)')
 
     parser.add_argument('--cascade-object', '-O', nargs='*', type=str, help='Specific types of objects to detect using haar cascades (slow!)')
     parser.add_argument('--yolo-tiny', '-yt', action='store_true', help='Use fast common object detection')

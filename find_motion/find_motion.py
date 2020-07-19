@@ -216,7 +216,7 @@ class VideoFrame(object):
         self.frame_delta: np_ndarray = None
         self.color_delta: np_ndarray = None
         self.mini: np_ndarray = None
-        self.dominant: np_ndarray = None
+        self.hue: np_ndarray = None
         self.mini_blur: np_ndarray = None
         self.gray: np_ndarray = None
         self.thresh: np_ndarray = None
@@ -230,46 +230,24 @@ class VideoFrame(object):
             channel[:, :, channel_index] = self.raw[:, :, channel_index]
             cv2.imshow(f'{channel_initials[channel_index]}-RGB', channel)
 
-    def make_bgrn(self) -> None:
-        self.dominant = np_zeros(shape=self.mini.shape, dtype=np_uint8)
-        mean_brightness: int = int(cv2.mean(self.mini_blur)[0])
-        margin: int = int(mean_brightness / 7) # TODO: configure magic number
-
-        for i in range(self.mini.shape[0]):
-            for j in range(self.mini.shape[1]):
-                k: Tuple[np_uint8, np_uint8, np_uint8] = self.mini_blur[i, j]
-                if k[0] > k[1] + margin and k[0] > k[2] + margin:
-                    self.dominant[i, j] = BLUE
-                    continue
-                if k[1] > k[0] + margin and k[1] > k[2] + margin:
-                    self.dominant[i, j] = GREEN
-                    continue
-                if k[2] > k[0] + margin and k[2] > k[1] + margin:
-                    self.dominant[i, j] = RED
-                    continue
-                if k[0] > mean_brightness + margin:
-                    self.dominant[i, j] = WHITE
-                    continue
-                if k[0] < mean_brightness - margin:
-                    self.dominant[i, j] = BLACK
-                    continue
-                self.dominant[i, j] = GRAY
+    def make_hue(self) -> None:
+        hsv = cv2.cvtColor(self.mini_blur, cv2.COLOR_BGR2HSV)
+        log.debug(hsv)
+        self.hue = hsv[:, :, 0]
 
     def diff(self, ref_frame: np_ndarray, ref_color: np_ndarray) -> None:
         """
         Find the diff between this frame and the reference frame
         """
         self.frame_delta = cv2.absdiff(self.blur, ref_frame)
-        self.color_delta = cv2.absdiff(self.dominant, ref_color)
+        self.color_delta = cv2.absdiff(self.hue, ref_color)
 
     def threshold(self) -> None:
         """
         Find the threshold of the diff
         """
         self.thresh = cv2.threshold(self.frame_delta, self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
-        # TODO: is this useful/correct?
-        grayImage = cv2.cvtColor(self.color_delta, cv2.COLOR_BGR2GRAY)
-        self.color_thresh = cv2.threshold(grayImage, self.threshold_value * 3, maxval=255, type=cv2.THRESH_BINARY)[1]
+        self.color_thresh = cv2.threshold(self.color_delta, self.threshold_value * 2, maxval=255, type=cv2.THRESH_BINARY)[1]
 
     def find_contours(self) -> None:
         """
@@ -657,12 +635,12 @@ class VideoMotion(object):
         """
         return [(int(a[0] * scale), int(a[1] * scale)) for a in area]
 
-    def make_bgrn(self, frame: VideoFrame=None) -> None:
+    def make_hue(self, frame: VideoFrame=None) -> None:
         """
         Draw black polygons over the masked off areas
         """
         frame = self.current_frame if frame is None else frame
-        frame.make_bgrn()
+        frame.make_hue()
 
     def mask_off_areas(self, frame: VideoFrame=None) -> None:
         """
@@ -681,23 +659,25 @@ class VideoMotion(object):
         """
         frame = self.current_frame if frame is None else frame
 
-        if frame.blur is None or frame.dominant is None:
-            raise Exception("Blur or dominant color frame is None")
+        if frame.blur is None or frame.hue is None:
+            raise Exception("Blur or hue frame is None")
         else:
             if self.ref_frame is None:
-                self.ref_frame = frame.blur.copy().astype(np_float32)     # pytype: disable=attribute-error
+                self.ref_frame = frame.blur.copy().astype(np_float32)
             if self.ref_color is None:
-                self.ref_color = frame.dominant.copy().astype(np_float32)
+                self.ref_color = frame.hue.copy().astype(np_float32)
 
             # compute the absolute difference between the current frame and ref frame
             self.ref_scaled = cv2.convertScaleAbs(self.ref_frame)
             self.ref_color_scaled = cv2.convertScaleAbs(self.ref_color)
             frame.diff(self.ref_scaled, self.ref_color_scaled)
+
+            # threshold the difference
             frame.threshold()
 
             # update reference frame using weighted average
             cv2.accumulateWeighted(frame.blur, self.ref_frame, self.avg)
-            cv2.accumulateWeighted(frame.dominant, self.ref_color, self.avg / 3)
+            cv2.accumulateWeighted(frame.hue, self.ref_color, self.avg)
 
             # find contours from the diff data
             frame.find_contours()
@@ -925,7 +905,8 @@ class VideoMotion(object):
 
             self.blur_frame()
             self.mask_off_areas()
-            self.make_bgrn()
+#            self.make_bgrn()
+            self.make_hue()
             self.find_diff()
 
             self.log.debug('Blurred frame, masked off, and diff made')
@@ -984,8 +965,8 @@ class VideoMotion(object):
                 if cf.raw is not None:
                     self.log.debug('Showing raw frame')
                     cv2.imshow('raw', cf.raw)
-                if cf.dominant is not None:
-                    cv2.imshow("Dominant colors", cf.dominant)
+                if cf.hue is not None:
+                    cv2.imshow("Hues", cf.hue)
                 if cf.color_delta is not None:
                     cv2.imshow("color delta", cf.color_delta)
                 if cf.color_thresh is not None:

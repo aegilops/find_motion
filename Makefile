@@ -29,10 +29,10 @@ pytype:
 	pytype .
 
 dev-requirements:
-    python3 -m pip install pip --upgrade --user
+	python3 -m pip install pip --upgrade --user
 	python3 -m pip install -r make_requirements.txt --upgrade --user
 
 install:
-    python3 -m pip install pip --upgrade --user
+	python3 -m pip install pip --upgrade --user
 	python3 -m pip install . --user
 

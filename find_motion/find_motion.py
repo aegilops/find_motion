@@ -17,10 +17,6 @@ r"""
 
 # TODO: have args as provided by argparse take priority over those in the config (currently it is vv)
 
-# TODO: think about r/g/b channel motion detection, instead of just grayscale, or some kind of colour-change detection instead of just tone change - measure rgb on a linear scale, detect change of 'high' amount
-
-# TODO: scale box sizes by location in frame - gradient, or custom matrix
-
 # TODO: look at more OpenCV functions, e.g.
     https://docs.opencv.org/3.2.0/d7/de9/group__video.html
 
@@ -200,7 +196,7 @@ class VideoFrame(object):
     """
     encapsulate frame stuff here, out of main video class
     """
-    def __init__(self, frame, show: bool, gaussian: Tuple[int, int], mask_areas: List[Any], scale: float = 1.0, threshold: int = None, box_size: int = None) -> None:
+    def __init__(self, frame, show: bool, gaussian: Tuple[int, int], mask_areas: List[Any], scale: float = 1.0, threshold: int = 0, box_size: int = 50) -> None:
         self.raw: np_ndarray = frame
         self.show: bool = show
         self.gaussian: Tuple[int, int] = gaussian
@@ -302,8 +298,8 @@ class VideoFrame(object):
                                    pts,
                                    BLACK)
                 cv2.fillConvexPoly(self.mini_blur,
-                    pts,
-                    BLACK)
+                                   pts,
+                                   BLACK)
 
     def cleanup(self) -> None:
         """

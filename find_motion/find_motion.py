@@ -21,6 +21,8 @@ r"""
     https://docs.opencv.org/3.2.0/d7/de9/group__video.html
 
 # TODO: add other output streams - not just to files, to cloud, sFTP server or email
+
+# TODO: for hue color change detection, ignore pixels that clip to black/white or are pure gray (no hue)
 """
 
 import sys
@@ -196,7 +198,11 @@ class VideoFrame(object):
     """
     encapsulate frame stuff here, out of main video class
     """
-    def __init__(self, frame, show: bool, gaussian: Tuple[int, int], mask_areas: List[Any], scale: float = 1.0, threshold: int = 0, box_size: int = 50) -> None:
+    def __init__(self, frame,
+                 show: bool, gaussian: Tuple[int, int],
+                 mask_areas: List[Any], scale: float = 1.0,
+                 threshold: int = 0, box_size: int = 50,
+                 no_shade: bool = False, no_hue: bool = False) -> None:
         self.raw: np_ndarray = frame
         self.show: bool = show
         self.gaussian: Tuple[int, int] = gaussian
@@ -204,6 +210,8 @@ class VideoFrame(object):
         self.scale: float = scale
         self.threshold_value = threshold
         self.box_size = box_size
+        self.no_shade: bool = no_shade
+        self.no_hue: bool = no_hue
 
         self.frame: Optional[np_ndarray] = self.raw.copy() if self.show else None
         self.in_cache: bool = False
@@ -219,13 +227,6 @@ class VideoFrame(object):
         self.blur: np_ndarray = None
         self.resized: np_ndarray = None
 
-    def show_rgb(self, channel_initials=list('BGR')) -> None:
-        """Show red, green and blue channels."""
-        for channel_index in range(3):
-            channel = np_zeros(shape=self.raw.shape, dtype=np_uint8)
-            channel[:, :, channel_index] = self.raw[:, :, channel_index]
-            cv2.imshow(f'{channel_initials[channel_index]}-RGB', channel)
-
     def make_hue(self) -> None:
         hsv = cv2.cvtColor(self.mini_blur, cv2.COLOR_BGR2HSV)
         log.debug(hsv)
@@ -235,15 +236,19 @@ class VideoFrame(object):
         """
         Find the diff between this frame and the reference frame
         """
-        self.frame_delta = cv2.absdiff(self.blur, ref_frame)
-        self.color_delta = cv2.absdiff(self.hue, ref_color)
+        if not self.no_shade:
+            self.frame_delta = cv2.absdiff(self.blur, ref_frame)
+        if not self.no_hue:
+            self.color_delta = cv2.absdiff(self.hue, ref_color)
 
     def threshold(self) -> None:
         """
         Find the threshold of the diff
         """
-        self.thresh = cv2.threshold(self.frame_delta, self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
-        self.color_thresh = cv2.threshold(self.color_delta, self.threshold_value * 2, maxval=255, type=cv2.THRESH_BINARY)[1]
+        if not self.no_shade:
+            self.thresh = cv2.threshold(self.frame_delta, self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
+        if not self.no_hue:
+            self.color_thresh = cv2.threshold(self.color_delta, self.threshold_value * 2, maxval=255, type=cv2.THRESH_BINARY)[1]
 
     def find_contours(self) -> None:
         """
@@ -251,20 +256,20 @@ class VideoFrame(object):
         """
         # dilate the thresholded grayscale image to fill in holes, then find contours
         # on thresholded image
-        self.thresh = cv2.dilate(self.thresh, kernel=None, iterations=2)
+        if not self.no_shade:
+            self.thresh = cv2.dilate(self.thresh, kernel=None, iterations=2)
 
-        try:
-            cnts, _hierarchy = cv2.findContours(
-                self.thresh, mode=cv2.RETR_EXTERNAL,
-                method=cv2.CHAIN_APPROX_SIMPLE
-            )[-2:]
-        except Exception as e:
-            log.error(str(e))
-            return
-        self.contours = cnts
+            try:
+                cnts, _hierarchy = cv2.findContours(
+                    self.thresh, mode=cv2.RETR_EXTERNAL,
+                    method=cv2.CHAIN_APPROX_SIMPLE
+                )[-2:]
+            except Exception as e:
+                log.error(str(e))
+                return
+            self.contours = cnts
 
-        # TODO: work out how to do contours on the color image
-        if True:
+        if not self.no_hue:
             try:
                 color_cnts, _hierarchy = cv2.findContours(
                     self.color_thresh, mode=cv2.RETR_EXTERNAL,
@@ -276,30 +281,36 @@ class VideoFrame(object):
             self.color_contours = color_cnts
 
     def blur_frame(self) -> None:
-        self.mini = imutils.resize(self.raw, width=self.box_size)
-        self.gray = cv2.cvtColor(self.mini, cv2.COLOR_BGR2GRAY)
-        self.blur = cv2.GaussianBlur(self.gray, self.gaussian, 0)
-        self.mini_blur = cv2.GaussianBlur(self.mini, self.gaussian, 0)
+        if not self.no_hue:
+            self.mini = imutils.resize(self.raw, width=self.box_size)
+            self.mini_blur = cv2.GaussianBlur(self.mini, self.gaussian, 0)
+        if not self.no_shade:
+            self.gray = cv2.cvtColor(self.mini, cv2.COLOR_BGR2GRAY)
+            self.blur = cv2.GaussianBlur(self.gray, self.gaussian, 0)
 
     def mask_off_areas(self) -> None:
         for area in self.mask_areas:
             scaled_area = VideoMotion.scale_area(area, self.scale)
             dim = len(scaled_area)
             if dim == 2:
-                cv2.rectangle(self.blur,
-                              *scaled_area,
-                              BLACK, cv2.FILLED)
-                cv2.rectangle(self.mini_blur,
-                              *scaled_area,
-                              BLACK, cv2.FILLED)
+                if not self.no_shade:
+                    cv2.rectangle(self.blur,
+                                *scaled_area,
+                                BLACK, cv2.FILLED)
+                if not self.no_hue:
+                    cv2.rectangle(self.mini_blur,
+                                *scaled_area,
+                                BLACK, cv2.FILLED)
             else:
                 pts = np_array(scaled_area, np_int32)
-                cv2.fillConvexPoly(self.blur,
-                                   pts,
-                                   BLACK)
-                cv2.fillConvexPoly(self.mini_blur,
-                                   pts,
-                                   BLACK)
+                if not self.no_shade:
+                    cv2.fillConvexPoly(self.blur,
+                                    pts,
+                                    BLACK)
+                if not self.no_hue:
+                    cv2.fillConvexPoly(self.mini_blur,
+                                    pts,
+                                    BLACK)
 
     def cleanup(self) -> None:
         """
@@ -330,7 +341,8 @@ class VideoMotion(object):
                  multiprocess: bool=False,
                  cascades: List[str]=None,
                  yolo_tiny: bool=False,
-                 no_object_detection: bool=False) -> None:
+                 no_object_detection: bool=False,
+                 no_shade: bool=False, no_hue: bool=False) -> None:
         self.filename = filename
 
         if self.filename is None:
@@ -350,6 +362,9 @@ class VideoMotion(object):
         self.outfiles: int = 0
         self.outfile_name: str = ''
         self.outdir: str = os.path.normpath(outdir)
+
+        self.no_shade: bool = no_shade
+        self.no_hue: bool = no_hue
 
         self.fps: int = fps
         self.box_size: int = box_size
@@ -521,7 +536,10 @@ class VideoMotion(object):
         if not ret:
             return False
 
-        self.current_frame = VideoFrame(frame, self.show, self.gaussian, self.mask_areas, self.scale, self.delta_thresh, self.box_size)
+        self.current_frame = VideoFrame(frame, self.show, self.gaussian,
+                                        self.mask_areas, self.scale,
+                                        self.delta_thresh, self.box_size,
+                                        self.no_shade, self.no_hue)
         return True
 
     def output_frame(self, frame: VideoFrame=None) -> None:
@@ -620,34 +638,34 @@ class VideoMotion(object):
 
     def is_open(self) -> bool:
         """
-        Return if the capture member is open
+        Say if the capture member is open.
         """
         return self.cap.isOpened()
 
     @staticmethod
     def scale_area(area: Tuple[Tuple[int, int], Tuple[int, int]], scale: float) -> List:
         """
-        Scale the area by the scale factor
+        Scale the area by the scale factor.
         """
         return [(int(a[0] * scale), int(a[1] * scale)) for a in area]
 
     def make_hue(self, frame: VideoFrame=None) -> None:
         """
-        Draw black polygons over the masked off areas
+        Make a record of the hue of the frame.
         """
         frame = self.current_frame if frame is None else frame
         frame.make_hue()
 
     def mask_off_areas(self, frame: VideoFrame=None) -> None:
         """
-        Draw black polygons over the masked off areas
+        Draw black polygons over the masked off areas.
         """
         frame = self.current_frame if frame is None else frame
         frame.mask_off_areas()
 
     def find_diff(self, frame: VideoFrame=None) -> None:
         """
-        Find the difference between this frame and the moving average
+        Find the difference between this frame and the moving average.
 
         Locate the contours around the thresholded difference
 
@@ -655,25 +673,29 @@ class VideoMotion(object):
         """
         frame = self.current_frame if frame is None else frame
 
-        if frame.blur is None or frame.hue is None:
-            raise Exception("Blur or hue frame is None")
+        if frame.blur is None and frame.hue is None:
+            raise Exception("Blur and hue frame are both None")
         else:
-            if self.ref_frame is None:
+            if self.ref_frame is None and not self.no_shade:
                 self.ref_frame = frame.blur.copy().astype(np_float32)
-            if self.ref_color is None:
+            if self.ref_color is None and not self.no_hue:
                 self.ref_color = frame.hue.copy().astype(np_float32)
 
             # compute the absolute difference between the current frame and ref frame
-            self.ref_scaled = cv2.convertScaleAbs(self.ref_frame)
-            self.ref_color_scaled = cv2.convertScaleAbs(self.ref_color)
+            if not self.no_shade:
+                self.ref_scaled = cv2.convertScaleAbs(self.ref_frame)
+            if not self.no_hue:
+                self.ref_color_scaled = cv2.convertScaleAbs(self.ref_color)
             frame.diff(self.ref_scaled, self.ref_color_scaled)
 
             # threshold the difference
             frame.threshold()
 
             # update reference frame using weighted average
-            cv2.accumulateWeighted(frame.blur, self.ref_frame, self.avg)
-            cv2.accumulateWeighted(frame.hue, self.ref_color, self.avg)
+            if not self.no_shade:
+                cv2.accumulateWeighted(frame.blur, self.ref_frame, self.avg)
+            if not self.no_hue:
+                cv2.accumulateWeighted(frame.hue, self.ref_color, self.avg)
 
             # find contours from the diff data
             frame.find_contours()
@@ -687,7 +709,7 @@ class VideoMotion(object):
         self.movement = False
         self.movement_decay -= 1 if self.movement_decay > 0 else 0
 
-        if frame.contours is not None and len(frame.contours) > 0:
+        if not self.no_shade and frame.contours is not None and len(frame.contours) > 0:
             # loop over the contours
             for contour in frame.contours:
                 # if the contour is too small, ignore it
@@ -712,7 +734,7 @@ class VideoMotion(object):
 
                 self.movement = True
 
-        if frame.color_contours is not None and len(frame.color_contours) > 0:
+        if not self.no_hue and frame.color_contours is not None and len(frame.color_contours) > 0:
             # loop over the contours
             for contour in frame.color_contours:
                 # if the contour is too small, ignore it
@@ -747,6 +769,7 @@ class VideoMotion(object):
     def find_objects(self, frame: VideoFrame=None, width=300, skip=15, scaleFactor=1.1, minNeighbours=5, confidence=0.25) -> Set[str]:
         frame = self.current_frame if frame is None else frame
 
+        # TODO: can we reuse an already done resize?
         frame.resized = imutils.resize(frame.raw, width=width)
 
         self.object_counter += 1
@@ -901,8 +924,8 @@ class VideoMotion(object):
 
             self.blur_frame()
             self.mask_off_areas()
-#            self.make_bgrn()
-            self.make_hue()
+            if not self.no_hue:
+                self.make_hue()
             self.find_diff()
 
             self.log.debug('Blurred frame, masked off, and diff made')
@@ -1338,6 +1361,10 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
         log.debug('Processing config: {}'.format(args.config))
         process_config(args.config, args)
 
+    if args.no_shade and args.no_hue:
+        log.error("You can only switch off hue or shade detection, not both")
+        sys.exit(2)
+
     if args.debug or args.test:
         log.setLevel(logging.DEBUG)
 
@@ -1371,7 +1398,9 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
                   threshold=args.threshold, avg=args.avg,
                   fps=args.fps, min_time=args.mintime, cache_time=args.cachetime,
                   multiprocess=args.processes > 1, cascades=args.cascade_object, yolo_tiny=args.yolo_tiny,
-                  no_object_detection=args.no_object_detection)
+                  no_object_detection=args.no_object_detection,
+                  no_shade=args.no_shade,
+                  no_hue=args.no_hue)
 
     try:
         if args.cameras:
@@ -1473,7 +1502,7 @@ def process_config(config_file: str, args: Namespace) -> Namespace:
             use_value = int(value)
         if setting in ('mintime', 'cachetime', 'avg'):
             use_value = float(value)
-        if setting in ('mem', 'progress', 'debug', 'show', 'ignore_progress', 'ignore_drive', 'yolo_tiny'):
+        if setting in ('mem', 'progress', 'debug', 'show', 'ignore_progress', 'ignore_drive', 'yolo_tiny', 'no_shade', 'no_hue', 'no_object_detection'):
             if value == 'True':
                 use_value = True
             elif value == 'False':
@@ -1514,6 +1543,9 @@ def get_args(parser: ArgumentParser) -> None:
     parser.add_argument('--yolo-tiny', '-yt', action='store_true', help='Use fast common object detection')
     parser.add_argument('--no-object-detection', '-no', action='store_true', help="Don't do any object detection")
 
+    parser.add_argument('--no-shade', '-ns', action="store_true", help="Don't use gray scale shade to detect motion")
+    parser.add_argument('--no-hue', '-nh', action="store_true", help="Don't use color hue to detect motion")
+    
     parser.add_argument('--blur-scale', '-b', type=int, default=20, help='Scale of gaussian blur size compared to video width (used as 1/blur_scale)')
     parser.add_argument('--box-size', '-B', type=int, default=100, help='Pixel size to scale the video to for processing')
     parser.add_argument('--min-box-scale', '-mbs', type=int, default=50, help='Scale of minimum motion compared to video width (used as 1/min_box_scale')

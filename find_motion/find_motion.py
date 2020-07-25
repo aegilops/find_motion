@@ -23,6 +23,8 @@ r"""
 # TODO: add other output streams - not just to files, to cloud, sFTP server or email
 
 # TODO: for hue color change detection, ignore pixels that clip to black/white or are pure gray (no hue)
+
+# TODO: multiprocess progress bars - one for each process
 """
 
 import sys
@@ -60,8 +62,6 @@ warnings.filterwarnings("ignore", r"Passing \(type, 1\) or '1type' as a synonym 
 from numpy import array as np_array
 from numpy import int32 as np_int32
 from numpy import ndarray as np_ndarray
-from numpy import zeros as np_zeros
-from numpy import uint8 as np_uint8
 from numpy import float32 as np_float32
 
 import cv2
@@ -82,8 +82,6 @@ DUMMY_PROGRESS_BAR: DummyProgressBar = DummyProgressBar()
 
 # Color constants
 BLACK = (0, 0, 0)
-WHITE = (255, 255, 255)
-GRAY = (127, 127, 127)
 RED = (0, 0, 255)
 GREEN = (0, 255, 0)
 BLUE = (255, 0, 0)
@@ -224,6 +222,7 @@ class VideoFrame(object):
         self.mini_blur: np_ndarray = None
         self.gray: np_ndarray = None
         self.thresh: np_ndarray = None
+        self.color_thresh: np_ndarray = None
         self.blur: np_ndarray = None
         self.resized: np_ndarray = None
 
@@ -295,22 +294,22 @@ class VideoFrame(object):
             if dim == 2:
                 if not self.no_shade:
                     cv2.rectangle(self.blur,
-                                *scaled_area,
-                                BLACK, cv2.FILLED)
+                                  *scaled_area,
+                                  BLACK, cv2.FILLED)
                 if not self.no_hue:
                     cv2.rectangle(self.mini_blur,
-                                *scaled_area,
-                                BLACK, cv2.FILLED)
+                                  *scaled_area,
+                                  BLACK, cv2.FILLED)
             else:
                 pts = np_array(scaled_area, np_int32)
                 if not self.no_shade:
                     cv2.fillConvexPoly(self.blur,
-                                    pts,
-                                    BLACK)
+                                       pts,
+                                       BLACK)
                 if not self.no_hue:
                     cv2.fillConvexPoly(self.mini_blur,
-                                    pts,
-                                    BLACK)
+                                       pts,
+                                       BLACK)
 
     def cleanup(self) -> None:
         """
@@ -850,7 +849,7 @@ class VideoMotion(object):
 
     def make_box(self, contour, frame: VideoFrame=None) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         """
-        Draw a green bounding box on the frame
+        Make a bounding box from a contour.
         """
         frame = self.current_frame if frame is None else frame
         return VideoMotion.make_area_from_rect(cv2.boundingRect(contour))
@@ -870,21 +869,18 @@ class VideoMotion(object):
         return area
 
     def draw_box(self, area, frame: VideoFrame=None, color: Tuple[int, int, int]=GREEN) -> None:
+        """Draw a rectangle on the frame with the chosen color."""
         if self.show:
             frame = self.current_frame if frame is None else frame
             cv2.rectangle(frame.frame, *VideoMotion.scale_area(area, 1 / self.scale), color, 2)
 
     @staticmethod
     def key_pressed(key: str) -> bool:
-        """
-        Say if we pressed the key we asked for
-        """
+        """Say if we pressed the key we asked for."""
         return cv2.waitKey(1) & 0xFF == ord(key)
 
     def cleanup(self) -> None:
-        """
-        Close the input file, output file, and get rid of OpenCV windows
-        """
+        """Close the input file, output file, and get rid of OpenCV windows."""
         if self.cap is not None:
             self.cap.release()
 
@@ -909,14 +905,12 @@ class VideoMotion(object):
         return
 
     def find_motion(self) -> Tuple[Optional[bool], str, Tuple[str, ...]]:
-        """
-        Main loop. Find motion in frames.
-        """
+        """Main loop. Find motion in frames."""
         while self.is_open():
 
             if self.multiprocess:
                 self.log.debug('Waiting...')
-                unpaused.wait()
+                #unpaused.wait()
 
             if not self.read():
                 self.log.debug('Reading did not succeed')
@@ -1153,7 +1147,7 @@ def run_pool(job: Callable[..., Any], processes: int, files: Iterable[str]=None,
 
         while True:
             files_done = {res.get() for res in results if res.ready()}
-            log.debug(files_done)
+            #log.debug(files_done)
             num_done = len(files_done)
 
             if num_done > done:
@@ -1545,7 +1539,7 @@ def get_args(parser: ArgumentParser) -> None:
 
     parser.add_argument('--no-shade', '-ns', action="store_true", help="Don't use gray scale shade to detect motion")
     parser.add_argument('--no-hue', '-nh', action="store_true", help="Don't use color hue to detect motion")
-    
+
     parser.add_argument('--blur-scale', '-b', type=int, default=20, help='Scale of gaussian blur size compared to video width (used as 1/blur_scale)')
     parser.add_argument('--box-size', '-B', type=int, default=100, help='Pixel size to scale the video to for processing')
     parser.add_argument('--min-box-scale', '-mbs', type=int, default=50, help='Scale of minimum motion compared to video width (used as 1/min_box_scale')

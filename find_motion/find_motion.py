@@ -341,7 +341,9 @@ class VideoMotion(object):
                  cascades: List[str]=None,
                  yolo_tiny: bool=False,
                  no_object_detection: bool=False,
-                 no_shade: bool=False, no_hue: bool=False) -> None:
+                 object_detect_frame_interval: int=10,
+                 no_shade: bool=False, no_hue: bool=False,
+                 no_output: bool=False) -> None:
         self.filename = filename
 
         if self.filename is None:
@@ -377,10 +379,12 @@ class VideoMotion(object):
         self.avg: float = avg
         self.mask_areas: List[Any] = mask_areas if mask_areas is not None else []
         self.show: bool = show
+        self.no_output: bool = no_output
 
         self.log.debug('Caching {} frames, min motion {} frames'.format(self.cache_frames, self.min_movement_frames))
 
         self.no_object_detection: bool = no_object_detection
+        self.object_detect_frame_interval: int = object_detect_frame_interval
         self.cascade_names: Optional[List[str]] = cascades if not self.no_object_detection else []
         self.cascades: Optional[Dict[str, Any]] = None
         self._load_cascades()
@@ -486,6 +490,9 @@ class VideoMotion(object):
         """
         Create an output file based on the input filename and the output directory
         """
+        if self.no_output:
+            return
+
         self.outfiles += 1
 
         if self.outfiles > 1 and self.outfile is not None:
@@ -557,12 +564,13 @@ class VideoMotion(object):
             self._make_outfile()
             self.wrote_frames = True
 
-        try:
-            self.outfile.write(frame.raw)
-        except Exception as e:
-            self.log.warning('Having to create output file due to exception: {}'.format(e))
-            self._make_outfile()
-            self.outfile.write(frame.raw)
+        if not self.no_output:
+            try:
+                self.outfile.write(frame.raw)
+            except Exception as e:
+                self.log.warning('Having to create output file due to exception: {}'.format(e))
+                self._make_outfile()
+                self.outfile.write(frame.raw)
 
     def output_raw_frame(self, frame: np_ndarray=None) -> None:
         """
@@ -572,12 +580,13 @@ class VideoMotion(object):
             self._make_outfile()
             self.wrote_frames = True
 
-        try:
-            self.outfile.write(frame)
-        except Exception as e:
-            self.log.warning('Having to create output file due to exception: {}'.format(e))
-            self._make_outfile()
-            self.outfile.write(frame)
+        if not self.no_output:
+            try:
+                self.outfile.write(frame)
+            except Exception as e:
+                self.log.warning('Having to create output file due to exception: {}'.format(e))
+                self._make_outfile()
+                self.outfile.write(frame)
 
 
     def decide_output(self) -> None:
@@ -765,14 +774,15 @@ class VideoMotion(object):
 
         return
 
-    def find_objects(self, frame: VideoFrame=None, width=300, skip=15, scaleFactor=1.1, minNeighbours=5, confidence=0.25) -> Set[str]:
+    # TODO: allow tweaking object detection settings - width, scale, neightbours and confidence
+    def find_objects(self, frame: VideoFrame=None, width=300, scaleFactor=1.1, minNeighbours=5, confidence=0.25) -> Set[str]:
         frame = self.current_frame if frame is None else frame
 
         # TODO: can we reuse an already done resize?
         frame.resized = imutils.resize(frame.raw, width=width)
 
         self.object_counter += 1
-        if self.object_counter != skip:
+        if self.object_counter != self.object_detect_frame_interval:
             if self.show:
                 self.draw_objects(frame.frame, self.frame_width / float(width))
             return set()
@@ -1393,8 +1403,10 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
                   fps=args.fps, min_time=args.mintime, cache_time=args.cachetime,
                   multiprocess=args.processes > 1, cascades=args.cascade_object, yolo_tiny=args.yolo_tiny,
                   no_object_detection=args.no_object_detection,
+                  object_detect_frame_interval=10,
                   no_shade=args.no_shade,
-                  no_hue=args.no_hue)
+                  no_hue=args.no_hue,
+                  no_output=args.no_output)
 
     try:
         if args.cameras:
@@ -1524,6 +1536,7 @@ def get_args(parser: ArgumentParser) -> None:
     parser.add_argument('--output-dir', '-o', default='', help='Output directory for processed files')
     parser.add_argument('--ignore-progress', '-I', action='store_true', default=False, help='Ignore progress log')
     parser.add_argument('--ignore-drive', '-D', action='store_true', default=False, help='Ignore drive letter in progress log')
+    parser.add_argument('--no-output', '-nop', action='store_true', default=False, help='Do not write any files (apart from progress log)')
 
     parser.add_argument('--codec', '-k', default='MP42', help='Codec to write files with')
     parser.add_argument('--fps', '-f', type=int, default=30, help='Frames per second of input files')
@@ -1536,6 +1549,7 @@ def get_args(parser: ArgumentParser) -> None:
     parser.add_argument('--cascade-object', '-O', nargs='*', type=str, help='Specific types of objects to detect using haar cascades (slow!)')
     parser.add_argument('--yolo-tiny', '-yt', action='store_true', help='Use fast common object detection')
     parser.add_argument('--no-object-detection', '-no', action='store_true', help="Don't do any object detection")
+    parser.add_argument('--object-detect-frame-interval', '-oi', type=int, help='How many frames to skip before doing object detection')
 
     parser.add_argument('--no-shade', '-ns', action="store_true", help="Don't use gray scale shade to detect motion")
     parser.add_argument('--no-hue', '-nh', action="store_true", help="Don't use color hue to detect motion")

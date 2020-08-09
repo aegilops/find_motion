@@ -3,11 +3,11 @@
 # pylint: disable=line-too-long,logging-format-interpolation,no-member
 
 """
-Motion detection with OpenCV
+Motion and object detection with OpenCV.
 
-With much help from https://www.pyimagesearch.com/
+With much help from https://www.pyimagesearch.com/ tutorials and cvlib.
 
-Caches images for a few frames before and after it detects movement
+Caches images for a few frames before and after it detects movement.
 """
 
 r"""
@@ -25,6 +25,10 @@ r"""
 # TODO: for hue color change detection, ignore pixels that clip to black/white or are pure gray (no hue)
 
 # TODO: multiprocess progress bars - one for each process
+
+# TODO: add YOLOv4, or another near-state-of-the-art detector (YOLOv5, etc.)
+#           - waiting on opencv-python going to 4.4.0: https://github.com/skvark/opencv-python/issues/364
+#           - which needs them to fix this bug, which is keeping me on 4.2.x: https://github.com/skvark/opencv-python/issues/362
 """
 
 import sys
@@ -63,12 +67,14 @@ from numpy import array as np_array
 from numpy import int32 as np_int32
 from numpy import ndarray as np_ndarray
 from numpy import float32 as np_float32
+from numpy import median as np_median
 
 import cv2
 import imutils
 import cvlib as cv
 
 import logging
+import traceback
 
 
 # pylint: disable=invalid-name
@@ -81,10 +87,11 @@ LINE_BUFFERED: int = 1
 DUMMY_PROGRESS_BAR: DummyProgressBar = DummyProgressBar()
 
 # Color constants
-BLACK = (0, 0, 0)
-RED = (0, 0, 255)
-GREEN = (0, 255, 0)
-BLUE = (255, 0, 0)
+BLACK = (0x00, 0x00, 0x00)
+RED = (0x00, 0x00, 0xFF)
+GREEN = (0x00, 0xFF, 0x00)
+BLUE = (0xFF, 0x00, 0x00)
+CYAN = (0x7F, 0x7F, 0x00)
 
 MASK_SCHEMA = {
     "type": "array",
@@ -129,9 +136,9 @@ unpaused = Event()
 
 def init_worker(event) -> None:
     """
-    Suppress signal handling in the worker processes so that they don't capture SIGINT (ctrl-c)
+    Suppress signal handling in the worker processes so that they don't capture SIGINT (ctrl-c).
 
-    Set an event so we can pause workers
+    Set an event so we can pause workers.
     """
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     global unpaused
@@ -140,7 +147,7 @@ def init_worker(event) -> None:
 
 class VideoError(Exception):
     """
-    An error when processing a video
+    An error when processing a video.
     """
     def __init__(self, _msg) -> None:
         super()
@@ -167,7 +174,7 @@ class VideoInfo(object):
 
     def _load_video(self) -> bool:
         """
-        Open the input video file, get the video info
+        Open the input video file, get the video info.
         """
         self.cap = cv2.VideoCapture(self.filename)
         try:
@@ -179,7 +186,7 @@ class VideoInfo(object):
 
     def _get_video_info(self) -> None:
         """
-        Set some metrics from the video
+        Set some metrics from the video.
         """
         self.log.debug(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.amount_of_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -194,13 +201,13 @@ class VideoInfo(object):
 
 class VideoFrame(object):
     """
-    encapsulate frame stuff here, out of main video class
+    Encapsulates a single video frame, and the processing done to it.
     """
     def __init__(self, frame,
                  show: bool, gaussian: Tuple[int, int],
                  mask_areas: List[Any], scale: float = 1.0,
                  threshold: int = 0, box_size: int = 50,
-                 no_shade: bool = False, no_hue: bool = False) -> None:
+                 no_shade: bool = False, no_hue: bool = False, no_edges: bool = False) -> None:
         self.raw: np_ndarray = frame
         self.show: bool = show
         self.gaussian: Tuple[int, int] = gaussian
@@ -210,11 +217,13 @@ class VideoFrame(object):
         self.box_size = box_size
         self.no_shade: bool = no_shade
         self.no_hue: bool = no_hue
+        self.no_edges: bool = no_edges
 
         self.frame: Optional[np_ndarray] = self.raw.copy() if self.show else None
         self.in_cache: bool = False
         self.contours: List = []
         self.color_contours: List = []
+        self.edges_contours: List = []
         self.frame_delta: np_ndarray = None
         self.color_delta: np_ndarray = None
         self.mini: np_ndarray = None
@@ -223,35 +232,51 @@ class VideoFrame(object):
         self.gray: np_ndarray = None
         self.thresh: np_ndarray = None
         self.color_thresh: np_ndarray = None
-        self.blur: np_ndarray = None
+        self.edges_thresh: np_ndarray = None
+        self.gray_blur: np_ndarray = None
         self.resized: np_ndarray = None
+        self.edges: np_ndarray = None
+
+    def find_edges(self):
+        """
+        Find edges in a frame.
+        """
+        if self.mini is None:
+            self.mini = imutils.resize(self.raw, width=self.box_size)
+
+        self.edges = cv2.convertScaleAbs(cv2.Laplacian(self.mini, cv2.CV_32F))
 
     def make_hue(self) -> None:
+        """Make the hue frame."""
         hsv = cv2.cvtColor(self.mini_blur, cv2.COLOR_BGR2HSV)
         log.debug(hsv)
         self.hue = hsv[:, :, 0]
 
-    def diff(self, ref_frame: np_ndarray, ref_color: np_ndarray) -> None:
+    def diff(self, ref_frame: np_ndarray, ref_color: np_ndarray, ref_edges: np_ndarray) -> None:
         """
-        Find the diff between this frame and the reference frame
+        Find the diff between this frame and the reference frame.
         """
         if not self.no_shade:
-            self.frame_delta = cv2.absdiff(self.blur, ref_frame)
+            self.frame_delta = cv2.absdiff(self.gray_blur, ref_frame)
         if not self.no_hue:
             self.color_delta = cv2.absdiff(self.hue, ref_color)
+        if not self.no_edges:
+            self.edges_delta = cv2.cvtColor(cv2.absdiff(self.edges, ref_edges), cv2.COLOR_BGR2GRAY)
 
     def threshold(self) -> None:
         """
-        Find the threshold of the diff
+        Find the threshold of the diff.
         """
         if not self.no_shade:
-            self.thresh = cv2.threshold(self.frame_delta, self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
+            self.thresh = cv2.threshold(self.frame_delta, thresh=self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
         if not self.no_hue:
-            self.color_thresh = cv2.threshold(self.color_delta, self.threshold_value * 2, maxval=255, type=cv2.THRESH_BINARY)[1]
+            self.color_thresh = cv2.threshold(self.color_delta, thresh=self.threshold_value * 2, maxval=255, type=cv2.THRESH_BINARY)[1]
+        if not self.no_edges:
+            self.edges_thresh = cv2.threshold(self.edges_delta, thresh=self.threshold_value * 2, maxval=255, type=cv2.THRESH_BINARY)[1]
 
     def find_contours(self) -> None:
         """
-        Find edges of the shapes in the thresholded image
+        Find edges of the shapes in the thresholded image.
         """
         # dilate the thresholded grayscale image to fill in holes, then find contours
         # on thresholded image
@@ -279,41 +304,63 @@ class VideoFrame(object):
                 return
             self.color_contours = color_cnts
 
+        if not self.no_edges:
+            try:
+                edges_cnts, _hierarchy = cv2.findContours(
+                    self.edges_thresh, mode=cv2.RETR_EXTERNAL,
+                    method=cv2.CHAIN_APPROX_SIMPLE
+                )[-2:]
+            except Exception as e:
+                log.error(str(e))
+                return
+            self.edges_contours = edges_cnts
+
     def blur_frame(self) -> None:
-        if not self.no_hue:
+        """Blur the gray scale and hue frames."""
+        if self.mini is None:
             self.mini = imutils.resize(self.raw, width=self.box_size)
+        if not self.no_hue:
             self.mini_blur = cv2.GaussianBlur(self.mini, self.gaussian, 0)
         if not self.no_shade:
             self.gray = cv2.cvtColor(self.mini, cv2.COLOR_BGR2GRAY)
-            self.blur = cv2.GaussianBlur(self.gray, self.gaussian, 0)
+            self.gray_blur = cv2.GaussianBlur(self.gray, self.gaussian, 0)
 
     def mask_off_areas(self) -> None:
+        """Mask off the gray scale, hue and edge frames."""
         for area in self.mask_areas:
             scaled_area = VideoMotion.scale_area(area, self.scale)
             dim = len(scaled_area)
             if dim == 2:
                 if not self.no_shade:
-                    cv2.rectangle(self.blur,
+                    cv2.rectangle(self.gray_blur,
                                   *scaled_area,
                                   BLACK, cv2.FILLED)
                 if not self.no_hue:
                     cv2.rectangle(self.mini_blur,
                                   *scaled_area,
                                   BLACK, cv2.FILLED)
+                if not self.no_edges:
+                    cv2.rectangle(self.edges,
+                                  *scaled_area,
+                                  BLACK, cv2.FILLED)
             else:
                 pts = np_array(scaled_area, np_int32)
                 if not self.no_shade:
-                    cv2.fillConvexPoly(self.blur,
+                    cv2.fillConvexPoly(self.gray_blur,
                                        pts,
                                        BLACK)
                 if not self.no_hue:
                     cv2.fillConvexPoly(self.mini_blur,
                                        pts,
                                        BLACK)
+                if not self.no_edges:
+                    cv2.fillConvexPoly(self.edges,
+                                       pts,
+                                       BLACK)
 
     def cleanup(self) -> None:
         """
-        Actively destroy the frame
+        Actively destroy the frame.
         """
         log.debug('Cleanup frame')
         for attr in ('frame', 'thresh', 'contours', 'frame_delta', 'blur'):
@@ -328,7 +375,9 @@ class VideoFrame(object):
 
 class VideoMotion(object):
     """
-    Class to read in a video, detect motion in it, and write out just the motion to a new file
+    Read in a video, detect motion in it, and write out just the motion to a new file.
+
+    Detect any objects present when motion is seen.
     """
     # pylint: disable=too-many-instance-attributes,too-many-arguments
     def __init__(self, filename: Union[str, int]=None, outdir: str='', fps: int=30,
@@ -342,7 +391,7 @@ class VideoMotion(object):
                  yolo_tiny: bool=False,
                  no_object_detection: bool=False,
                  object_detect_frame_interval: int=10,
-                 no_shade: bool=False, no_hue: bool=False,
+                 no_shade: bool=False, no_hue: bool=False, no_edges: bool = False,
                  no_output: bool=False) -> None:
         self.filename = filename
 
@@ -366,6 +415,7 @@ class VideoMotion(object):
 
         self.no_shade: bool = no_shade
         self.no_hue: bool = no_hue
+        self.no_edges: bool = no_edges
 
         self.fps: int = fps
         self.box_size: int = box_size
@@ -409,6 +459,8 @@ class VideoMotion(object):
         self.ref_scaled: np_ndarray = None
         self.ref_color: np_ndarray = None
         self.ref_color_scaled: np_ndarray = None
+        self.ref_edges: np_ndarray = None
+        self.ref_edges_scaled: np_ndarray = None
         self.frame_cache: Deque[VideoFrame]
 
         self.wrote_frames: Optional[bool] = False
@@ -526,6 +578,10 @@ class VideoMotion(object):
         gaussian_size = int(self.box_size / self.gaussian_scale)
         gaussian_size = gaussian_size + 1 if gaussian_size % 2 == 0 else gaussian_size
         self.gaussian = (gaussian_size, gaussian_size)
+
+    def find_edges(self, frame=None) -> None:
+        frame = self.current_frame if frame is None else frame
+        frame.find_edges()
 
     def blur_frame(self, frame=None) -> None:
         """
@@ -681,29 +737,36 @@ class VideoMotion(object):
         """
         frame = self.current_frame if frame is None else frame
 
-        if frame.blur is None and frame.hue is None:
-            raise Exception("Blur and hue frame are both None")
+        if frame.gray_blur is None and frame.hue is None and frame.edges is None:
+            raise Exception("Blur and hue and edge frames are all None")
         else:
+            # Make reference frames if they don't already exist
             if self.ref_frame is None and not self.no_shade:
-                self.ref_frame = frame.blur.copy().astype(np_float32)
+                self.ref_frame = frame.gray_blur.copy().astype(np_float32)
             if self.ref_color is None and not self.no_hue:
                 self.ref_color = frame.hue.copy().astype(np_float32)
+            if self.ref_edges is None and not self.no_edges:
+                self.ref_edges = frame.edges.copy().astype(np_float32)
 
             # compute the absolute difference between the current frame and ref frame
             if not self.no_shade:
                 self.ref_scaled = cv2.convertScaleAbs(self.ref_frame)
             if not self.no_hue:
                 self.ref_color_scaled = cv2.convertScaleAbs(self.ref_color)
-            frame.diff(self.ref_scaled, self.ref_color_scaled)
+            if not self.no_edges:
+                self.ref_edges_scaled = cv2.convertScaleAbs(self.ref_edges)
+            frame.diff(self.ref_scaled, self.ref_color_scaled, self.ref_edges_scaled)
 
             # threshold the difference
             frame.threshold()
 
             # update reference frame using weighted average
             if not self.no_shade:
-                cv2.accumulateWeighted(frame.blur, self.ref_frame, self.avg)
+                cv2.accumulateWeighted(frame.gray_blur, self.ref_frame, self.avg)
             if not self.no_hue:
                 cv2.accumulateWeighted(frame.hue, self.ref_color, self.avg)
+            if not self.no_edges:
+                cv2.accumulateWeighted(frame.edges, self.ref_edges, self.avg)
 
             # find contours from the diff data
             frame.find_contours()
@@ -718,54 +781,13 @@ class VideoMotion(object):
         self.movement_decay -= 1 if self.movement_decay > 0 else 0
 
         if not self.no_shade and frame.contours is not None and len(frame.contours) > 0:
-            # loop over the contours
-            for contour in frame.contours:
-                # if the contour is too small, ignore it
-                try:
-                    area = cv2.contourArea(contour)
-                except Exception as e:
-                    self.log.error(str(e))
-                    continue
-
-                if area > self.max_area:
-                    continue
-
-                if area < self.min_area:
-                    continue
-
-                # compute the bounding box for the contour, draw it on the frame,
-                # and update the text
-
-                if self.show:
-                    box = self.make_box(contour, frame)
-                    self.draw_box(box, frame, GREEN)
-
-                self.movement = True
+            self.process_contours(frame, frame.contours, GREEN)
 
         if not self.no_hue and frame.color_contours is not None and len(frame.color_contours) > 0:
-            # loop over the contours
-            for contour in frame.color_contours:
-                # if the contour is too small, ignore it
-                try:
-                    area = cv2.contourArea(contour)
-                except Exception as e:
-                    self.log.error(str(e))
-                    continue
+            self.process_contours(frame, frame.color_contours, BLUE)
 
-                if area < (self.min_area * 4):
-                    continue
-
-                if area > self.max_area:
-                    continue
-
-                # compute the bounding box for the contour, draw it on the frame,
-                # and update the text
-
-                if self.show:
-                    box = self.make_box(contour, frame)
-                    self.draw_box(box, frame, BLUE)
-
-                self.movement = True
+        if not self.no_edges and frame.edges_contours is not None and len(frame.edges_contours) > 0:
+            self.process_contours(frame, frame.edges_contours, CYAN)
 
         if not self.movement:
             self.movement_counter = 0
@@ -773,6 +795,31 @@ class VideoMotion(object):
             self.movement_counter += 1
 
         return
+
+    def process_contours(self, frame, contours, color):
+        # loop over the contours
+        for contour in contours:
+            # if the contour is too small, ignore it
+            try:
+                area = cv2.contourArea(contour)
+            except Exception as e:
+                self.log.error(str(e))
+                continue
+
+            if area < (self.min_area * 4):
+                continue
+
+            if area > self.max_area:
+                continue
+
+            # compute the bounding box for the contour, draw it on the frame,
+            # and update the text
+
+            if self.show:
+                box = self.make_box(contour, frame)
+                self.draw_box(box, frame, color)
+
+            self.movement = True
 
     # TODO: allow tweaking object detection settings - width, scale, neightbours and confidence
     def find_objects(self, frame: VideoFrame=None, width=300, scaleFactor=1.1, minNeighbours=5, confidence=0.25) -> Set[str]:
@@ -920,7 +967,7 @@ class VideoMotion(object):
 
             if self.multiprocess:
                 self.log.debug('Waiting...')
-                #unpaused.wait()
+                # unpaused.wait()
 
             if not self.read():
                 self.log.debug('Reading did not succeed')
@@ -930,6 +977,8 @@ class VideoMotion(object):
             self.mask_off_areas()
             if not self.no_hue:
                 self.make_hue()
+            if not self.no_edges:
+                self.find_edges()
             self.find_diff()
 
             self.log.debug('Blurred frame, masked off, and diff made')
@@ -982,9 +1031,9 @@ class VideoMotion(object):
                 if cf.gray is not None:
                     self.log.debug('Showing gray frame')
                     cv2.imshow('gray', cf.gray)
-                if cf.blur is not None:
+                if cf.gray_blur is not None:
                     self.log.debug('Showing blur frame')
-                    cv2.imshow('blur', cf.blur)
+                    cv2.imshow('blur', cf.gray_blur)
                 if cf.raw is not None:
                     self.log.debug('Showing raw frame')
                     cv2.imshow('raw', cf.raw)
@@ -992,10 +1041,16 @@ class VideoMotion(object):
                     cv2.imshow("Hues", cf.hue)
                 if cf.color_delta is not None:
                     cv2.imshow("color delta", cf.color_delta)
+                if cf.edges_delta is not None:
+                    cv2.imshow("edges delta", cf.edges_delta)
                 if cf.color_thresh is not None:
                     cv2.imshow("color thresh", cf.color_thresh)
+                if cf.edges_thresh is not None:
+                    cv2.imshow("edges thresh", cf.edges_thresh)
                 if cf.frame_delta is not None:
                     cv2.imshow("delta", cf.frame_delta)
+                if cf.edges is not None:
+                    cv2.imshow("edges", cf.edges)
             except Exception as e:
                 self.log.error('Oops: {}'.format(e))
         else:
@@ -1066,7 +1121,7 @@ class ClockTime(object):
     def __str__(self) -> str:
         return "{:02d}:{:02d}:{:02d}".format(self.hour, self.min, self.sec)
 
-    # typhints left out on 'other' since 'ClockTime' fails and using 'object' provides little benefit
+    # typehints left out on 'other' since 'ClockTime' fails and using 'object' provides little benefit
     def __lt__(self, other) -> bool:
         return self.hour < other.hour \
             or self.hour == other.hour and self.min < other.min \
@@ -1111,6 +1166,7 @@ def run_vid(filename: Union[str, int], **kwargs) -> Tuple[Optional[bool], Union[
             err_msg = 'Video did not load successfully'
     except Exception as e:
         err_msg = 'Error processing video {}: {}'.format(filename, e)
+        traceback.print_exc(file=sys.stdout)
         wrote_frames = None
     log.debug("Finished video %s", filename)
     return (wrote_frames, filename, err_msg, seen_objects)
@@ -1118,9 +1174,9 @@ def run_vid(filename: Union[str, int], **kwargs) -> Tuple[Optional[bool], Union[
 
 def get_progress(log_file: str) -> Set[str]:
     """
-    Load the progress log file, get the list of files
+    Load the progress log file, get the list of files.
 
-    Strip off any comment at the end of the filename
+    Strip off any comment at the end of the filename.
     """
     try:
         with open(log_file, 'r') as progress_log:
@@ -1132,9 +1188,7 @@ def get_progress(log_file: str) -> Set[str]:
 
 def run_pool(job: Callable[..., Any], processes: int, files: Iterable[str]=None, pbar: Union[ProgressBar, DummyProgressBar]=DUMMY_PROGRESS_BAR, progress_log: IO[str]=None) -> None:
     """
-    Create and run a pool of workers
-
-    Allows pausing by pressing the spacebar
+    Create and run a pool of workers.
     """
     if not files:
         raise ValueError('More than 0 files needed')
@@ -1157,7 +1211,7 @@ def run_pool(job: Callable[..., Any], processes: int, files: Iterable[str]=None,
 
         while True:
             files_done = {res.get() for res in results if res.ready()}
-            #log.debug(files_done)
+            # log.debug(files_done)
             num_done = len(files_done)
 
             if num_done > done:
@@ -1223,6 +1277,9 @@ def run_map(job: Callable, files: Iterable[str], pbar: Union[ProgressBar, DummyP
 
 
 def run_stream(job: Callable, processes: int, cameras: List[int], progress_log: IO[str]=None) -> None:
+    """
+    Process one or more streams of input video with a Pool.
+    """
     if not cameras:
         raise ValueError('More than 0 cameras needed')
 
@@ -1280,6 +1337,7 @@ def run_stream(job: Callable, processes: int, cameras: List[int], progress_log: 
 
 
 def test_files(files) -> None:
+    """Test loading from files."""
     for f in files:
         log.debug("{}: {}".format(f[0], datetime.fromtimestamp(f[1]).isoformat()))
         try:
@@ -1289,6 +1347,7 @@ def test_files(files) -> None:
 
 
 def test_stream(cameras) -> None:
+    """Test streaming from cameras."""
     for camera in cameras:
         try:
             log.debug("Camera stream: " + str(VideoInfo(camera, log_level=logging.DEBUG)))
@@ -1298,7 +1357,7 @@ def test_stream(cameras) -> None:
 
 def main() -> None:
     """
-    Main app entry point
+    Run app.
     """
     parser: ArgumentParser = ArgumentParser(description="Find motion and objects in video", epilog="Available specific object detection: {}".format(list(CASCADE_LOOKUP.keys())))
     get_args(parser)
@@ -1313,7 +1372,7 @@ def main() -> None:
 
 def make_pbar_widgets(num_files: int) -> List:
     """
-    Create progressbar widgets
+    Create progressbar widgets.
     """
     return [
         progressbar.Counter(), '/', str(num_files), ' ',
@@ -1326,7 +1385,7 @@ def make_pbar_widgets(num_files: int) -> List:
 
 def make_progressbar(progress: bool=False, num_files: int=0) -> ProgressBar:
     """
-    Create progressbar
+    Create progressbar.
     """
     return ProgressBar(max_value=num_files,
                        redirect_stdout=True,
@@ -1335,7 +1394,8 @@ def make_progressbar(progress: bool=False, num_files: int=0) -> ProgressBar:
                        ) if progress else DUMMY_PROGRESS_BAR
 
 
-def read_masks(masks_file: str) -> List:
+def read_masks(masks_file: str) -> List[Tuple]:
+    """Read in masks from file."""
     try:
         with open(masks_file, 'r') as mf:
             masks = json.load(mf)
@@ -1354,19 +1414,20 @@ def read_masks(masks_file: str) -> List:
 
 
 def set_log_file(input_dir: str=None, output_dir: str=None) -> str:
+    """Log file in output directory, or input directory, or current directory, in that order of preference."""
     return os.path.normpath(os.path.join(output_dir if output_dir is not None else input_dir if input_dir is not None else '.', 'progress.log'))
 
 
 def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
     """
-    Secondary entry point to allow running from a different app using an argparse Namespace
+    Run app using an argparse Namespace.
     """
     if args.config:
         log.debug('Processing config: {}'.format(args.config))
         process_config(args.config, args)
 
-    if args.no_shade and args.no_hue:
-        log.error("You can only switch off hue or shade detection, not both")
+    if args.no_shade and args.no_hue and args.no_edges:
+        log.error("You need to leave one of shade, hue or edge detection switched on")
         sys.exit(2)
 
     if args.debug or args.test:
@@ -1465,6 +1526,7 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
 
 # TODO: fix ignore_drive
 def process_progress(files: "OrderedSet[str]", log_file: str, ignore_drive: bool=False) -> "OrderedSet[str]":
+    """Remove any previously processed files."""
     found_files_num = len(files)
     done_files: Set[str] = get_progress(log_file)
     log.debug("{} done files".format(str(len(done_files))))
@@ -1477,6 +1539,9 @@ def process_progress(files: "OrderedSet[str]", log_file: str, ignore_drive: bool
 
 
 def process_times(time_order: List[str]) -> List[Tuple[time.struct_time, time.struct_time]]:
+    """
+    Turn config-provided time orders into usable data structures.s
+    """
     times: List[Tuple[time.struct_time, time.struct_time]] = []
 
     if time_order is None:
@@ -1495,7 +1560,7 @@ def process_times(time_order: List[str]) -> List[Tuple[time.struct_time, time.st
 
 def process_config(config_file: str, args: Namespace) -> Namespace:
     """
-    Read an INI style config
+    Read an INI style config, converting data to appropriate types.
 
     TODO: apply argparse validation to the config values
     """
@@ -1525,7 +1590,7 @@ def process_config(config_file: str, args: Namespace) -> Namespace:
 
 def get_args(parser: ArgumentParser) -> None:
     """
-    Set how to process command line arguments
+    Set how to process command line arguments.
     """
     parser.add_argument('files', nargs='*', help='Video files to find motion in')
 
@@ -1553,6 +1618,7 @@ def get_args(parser: ArgumentParser) -> None:
 
     parser.add_argument('--no-shade', '-ns', action="store_true", help="Don't use gray scale shade to detect motion")
     parser.add_argument('--no-hue', '-nh', action="store_true", help="Don't use color hue to detect motion")
+    parser.add_argument('--no-edges', '-ne', action="store_true", help="Don't use edges to detect motion")
 
     parser.add_argument('--blur-scale', '-b', type=int, default=20, help='Scale of gaussian blur size compared to video width (used as 1/blur_scale)')
     parser.add_argument('--box-size', '-B', type=int, default=100, help='Pixel size to scale the video to for processing')

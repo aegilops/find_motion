@@ -2,7 +2,7 @@
 
 Video processing Python 3 script to detect motion and objects, with tunable parameters.
 
-Uses brightness and/or color changes to spot movement against a relatively still background.
+Uses brightness, color changes and edge changes to spot movement against a relatively still background.
 
 Caches images for a few frames before and after it detects movement.
 
@@ -25,8 +25,8 @@ Use `./find_motion.py -h` and `pydoc3 find_motion.py` (or `find_motion -h` and `
 ### Tuning
 
 To reduce false motion from shadows, wind movement, noise, sun glare and so on, you can control:
-* Shade or hue change detection
-  Whether to use changes in gray scale shade and/or color hue to spot motion
+* Shade, hue or edge change detection
+  Whether to use changes in gray scale shade, color hue or edges to spot motion
 
 * Threshold
 

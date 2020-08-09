@@ -277,9 +277,10 @@ class VideoFrame(object):
     def find_contours(self) -> None:
         """
         Find edges of the shapes in the thresholded image.
+
+        Dilate the thresholded grayscale and edges images to fill in holes, then find contours.
         """
-        # dilate the thresholded grayscale image to fill in holes, then find contours
-        # on thresholded image
+
         if not self.no_shade:
             self.thresh = cv2.dilate(self.thresh, kernel=None, iterations=2)
 
@@ -305,6 +306,8 @@ class VideoFrame(object):
             self.color_contours = color_cnts
 
         if not self.no_edges:
+            self.thresh = cv2.dilate(self.edges_thresh, kernel=None, iterations=2)
+
             try:
                 edges_cnts, _hierarchy = cv2.findContours(
                     self.edges_thresh, mode=cv2.RETR_EXTERNAL,

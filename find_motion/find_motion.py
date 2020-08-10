@@ -67,7 +67,6 @@ from numpy import array as np_array
 from numpy import int32 as np_int32
 from numpy import ndarray as np_ndarray
 from numpy import float32 as np_float32
-from numpy import median as np_median
 
 import cv2
 import imutils

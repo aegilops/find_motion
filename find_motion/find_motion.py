@@ -225,6 +225,7 @@ class VideoFrame(object):
         self.edges_contours: List = []
         self.frame_delta: np_ndarray = None
         self.color_delta: np_ndarray = None
+        self.edges_delta: np_ndarray = None
         self.mini: np_ndarray = None
         self.hue: np_ndarray = None
         self.mini_blur: np_ndarray = None

@@ -391,6 +391,7 @@ class VideoMotion(object):
                  mem: bool=False, cleanup: bool=False,
                  multiprocess: bool=False,
                  cascades: List[str]=None,
+                 haarcascades_path: str="/usr/local/share/opencv4/haarcascades",
                  yolo_tiny: bool=False,
                  no_object_detection: bool=False,
                  object_detect_frame_interval: int=10,
@@ -439,6 +440,8 @@ class VideoMotion(object):
         self.no_object_detection: bool = no_object_detection
         self.object_detect_frame_interval: int = object_detect_frame_interval
         self.cascade_names: Optional[List[str]] = cascades if not self.no_object_detection else []
+        self.haarcascades_path: str = haarcascades_path
+
         self.cascades: Optional[Dict[str, Any]] = None
         self._load_cascades()
         self.log.debug(str(self.cascades))
@@ -494,8 +497,8 @@ class VideoMotion(object):
 
             self.log.debug(str(cascades))
             for cascade, title in cascades.items():
-                self.log.debug('{}: {}'.format(title, os.path.join(FIND_MOTION_PATH, 'haarcascades', 'haarcascade_{}.xml'.format(cascade))))
-            self.cascades = {title: cv2.CascadeClassifier(os.path.join(FIND_MOTION_PATH, 'haarcascades', 'haarcascade_{}.xml'.format(cascade))) for cascade, title in cascades.items()}
+                self.log.debug('{}: {}'.format(title, os.path.join(self.haarcascades_path, 'haarcascade_{}.xml'.format(cascade))))
+            self.cascades = {title: cv2.CascadeClassifier(os.path.join(self.haarcascades_path, 'haarcascade_{}.xml'.format(cascade))) for cascade, title in cascades.items()}
         else:
             self.log.debug('No cascades')
             self.cascades = dict()
@@ -1465,7 +1468,9 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
                   blur_scale=args.blur_scale, box_size=args.box_size, min_box_scale=args.min_box_scale,
                   threshold=args.threshold, avg=args.avg,
                   fps=args.fps, min_time=args.mintime, cache_time=args.cachetime,
-                  multiprocess=args.processes > 1, cascades=args.cascade_object, yolo_tiny=args.yolo_tiny,
+                  multiprocess=args.processes > 1,
+                  cascades=args.cascade_object, haarcascades_path=args.haarcascades_path,
+                  yolo_tiny=args.yolo_tiny,
                   no_object_detection=args.no_object_detection,
                   object_detect_frame_interval=10,
                   no_shade=args.no_shade,
@@ -1615,6 +1620,7 @@ def get_args(parser: ArgumentParser) -> None:
     parser.add_argument('--masks-file', '-mf', help='File holding mask coordinates (JSON)')
 
     parser.add_argument('--cascade-object', '-O', nargs='*', type=str, help='Specific types of objects to detect using haar cascades (slow!)')
+    parser.add_argument('--haarcascades-path', '-cp', type=str, default="/usr/local/share/opencv4/haarcascades", help='Specific types of objects to detect using haar cascades (slow!)')
     parser.add_argument('--yolo-tiny', '-yt', action='store_true', help='Use fast common object detection')
     parser.add_argument('--no-object-detection', '-no', action='store_true', help="Don't do any object detection")
     parser.add_argument('--object-detect-frame-interval', '-oi', type=int, help='How many frames to skip before doing object detection')

@@ -25,10 +25,6 @@ r"""
 # TODO: for hue color change detection, ignore pixels that clip to black/white or are pure gray (no hue)
 
 # TODO: multiprocess progress bars - one for each process
-
-# TODO: add YOLOv4, or another near-state-of-the-art detector (YOLOv5, etc.)
-#           - waiting on opencv-python going to 4.4.0: https://github.com/skvark/opencv-python/issues/364
-#           - which needs them to fix this bug, which is keeping me on 4.2.x: https://github.com/skvark/opencv-python/issues/362
 """
 
 import sys
@@ -41,15 +37,25 @@ import math
 
 from argparse import ArgumentParser, Namespace
 from configparser import ConfigParser
+from packaging import version
 from ast import literal_eval
 import json
 from jsonschema import validate
 from time import strptime
 
+# get YOLOv4 data
+try:
+    import importlib.resources as importlib_resources
+except ImportError:
+    # Try backported to PY<37 `importlib_resources`.
+    import importlib_resources as importlib_resources
+from . import data
+
 from typing import List, Dict, Any, Union, Optional, Tuple, Deque, Set, Callable, Iterable, IO
 
 from collections import deque
 import copy
+import itertools
 
 from functools import partial
 from multiprocessing import Pool, Event
@@ -214,6 +220,7 @@ class VideoFrame(object):
         self.scale: float = scale
         self.threshold_value = threshold
         self.box_size = box_size
+
         self.no_shade: bool = no_shade
         self.no_hue: bool = no_hue
         self.no_edges: bool = no_edges
@@ -384,15 +391,15 @@ class VideoMotion(object):
     """
     # pylint: disable=too-many-instance-attributes,too-many-arguments
     def __init__(self, filename: Union[str, int]=None, outdir: str='', fps: int=30,
-                 box_size: int=100, min_box_scale: int=50, cache_time: float=2.0, min_time: float=0.5,
-                 threshold: int=7, avg: float=0.1, blur_scale: int=20,
+                 box_size: int=100, min_box_scale: int=50, cache_time: float=3.0, min_time: float=0.25,
+                 threshold: int=7, avg: float=0.05, blur_scale: int=20,
                  mask_areas: list=None, show: bool=False,
                  codec: str='MJPG', log_level: int=logging.INFO,
                  mem: bool=False, cleanup: bool=False,
                  multiprocess: bool=False,
                  cascades: List[str]=None,
                  haarcascades_path: str="/usr/local/share/opencv4/haarcascades",
-                 yolo_tiny: bool=False,
+                 yolov3: bool=False, yolov4: bool=False, yolo_tiny: bool=False,
                  no_object_detection: bool=False,
                  object_detect_frame_interval: int=10,
                  no_shade: bool=False, no_hue: bool=False, no_edges: bool = False,
@@ -420,6 +427,7 @@ class VideoMotion(object):
         self.no_shade: bool = no_shade
         self.no_hue: bool = no_hue
         self.no_edges: bool = no_edges
+        self.motion_types_count: int = sum([not self.no_shade, not self.no_hue, not self.no_edges])
 
         self.fps: int = fps
         self.box_size: int = box_size
@@ -441,6 +449,19 @@ class VideoMotion(object):
         self.object_detect_frame_interval: int = object_detect_frame_interval
         self.cascade_names: Optional[List[str]] = cascades if not self.no_object_detection else []
         self.haarcascades_path: str = haarcascades_path
+        self.yolov3: bool = yolov3
+        self.yolov4: bool = yolov4
+        self.names: Optional[List] = None
+        self.cfg: Optional[str] = None
+        self.weights: Optional[str] = None
+        self.net: Optional[Any] = None
+        
+        if version.parse(cv2.__version__) <= version.parse("4.3") and self.yolov4:
+            self.yolov4 = False
+            self.yolov3 = True
+            self.log.warning("Using YOLOv3")
+            self.log.warning("Cannot use YOLOV4, OpenCV2 needs to be at 4.4.0 or above")
+            self.log.warning("Try building from source if you rely on the opencv-python package from pypi, and that is not yet at that level, or update the package with pip")
 
         self.cascades: Optional[Dict[str, Any]] = None
         self._load_cascades()
@@ -795,9 +816,7 @@ class VideoMotion(object):
         if not self.no_edges and frame.edges_contours is not None and len(frame.edges_contours) > 0:
             self.process_contours(frame, frame.edges_contours, CYAN)
 
-        if not self.movement:
-            self.movement_counter = 0
-        else:
+        if self.movement:
             self.movement_counter += 1
 
         return
@@ -805,7 +824,7 @@ class VideoMotion(object):
     def process_contours(self, frame, contours, color):
         # loop over the contours
         for contour in contours:
-            # if the contour is too small, ignore it
+            # if the contour is too small, or too large, ignore it
             try:
                 area = cv2.contourArea(contour)
             except Exception as e:
@@ -828,7 +847,7 @@ class VideoMotion(object):
             self.movement = True
 
     # TODO: allow tweaking object detection settings - width, scale, neightbours and confidence
-    def find_objects(self, frame: VideoFrame=None, width=300, scaleFactor=1.1, minNeighbours=5, confidence=0.25) -> Set[str]:
+    def find_objects(self, frame: VideoFrame=None, width=300, scaleFactor=1.1, minNeighbours=5, confidence=0.25, nmsthreshold=0.5) -> Set[str]:
         frame = self.current_frame if frame is None else frame
 
         # TODO: can we reuse an already done resize?
@@ -860,14 +879,50 @@ class VideoMotion(object):
                         self.last_objects[title].append(area)
 
         # with cvlib, using yolov3
-        self.log.debug('Common objects')
-        bboxes, labels, _confs = cv.detect_common_objects(frame.resized, confidence=confidence, model='yolov3-tiny' if self.tiny else 'yolov3')
-        self.log.debug('Common objects: done')
-        cvlib_objects = list(zip(bboxes, labels))
-        for box, label in cvlib_objects:
-            if label not in self.last_objects:
-                self.last_objects[label] = []
-            self.last_objects[label].append(VideoMotion.make_area_from_box(tuple(box)))
+        if self.yolov3:
+            model = f"yolov3{'-tiny' if self.tiny else ''}"
+            self.log.debug(f'Common objects with {model}')
+            bboxes, labels, _confs = cv.detect_common_objects(frame.resized, confidence=confidence, model=model)
+            self.log.debug('Common objects: done')
+            cvlib_objects = list(zip(bboxes, labels))
+            for box, label in cvlib_objects:
+                if label not in self.last_objects:
+                    self.last_objects[label] = []
+                self.last_objects[label].append(VideoMotion.make_area_from_box(tuple(box)))
+
+        # with opencv2, v4.4.0, packaged yolov4.cfg and yolov4.weights
+        # based on code snippet in https://github.com/opencv/opencv/pull/17185 that enabled support for YOLOv4 in OpenCV
+        # TODO: only yolov4-tiny is working - get yolov4 working
+        if self.yolov4:
+            # read in config, weights and names, if we haven't already
+            if self.cfg is None:
+                self.cfg = importlib_resources.files(data).joinpath(f"yolov4{'-tiny' if self.tiny else ''}.cfg").as_posix()
+            if self.weights is None:
+                self.weights = importlib_resources.files(data).joinpath(f"yolov4{'-tiny' if self.tiny else ''}.weights").as_posix()
+            if self.names is None:
+                self.names = [n for n in open(importlib_resources.files(data).joinpath("coco.names"), "r").read().split('\n') if n is not None and n != ""]
+
+            # set up the detection network, if necessary
+            if self.net is None:
+                self.net = cv2.dnn_DetectionModel(self.cfg, self.weights)
+                self.net.setInputSize(608, 608)
+                self.net.setInputScale(1.0 / 255)
+                self.net.setInputSwapRB(True)
+
+            # do detection in this frame
+            classes, confidences, boxes = self.net.detect(frame.resized, confThreshold=confidence, nmsThreshold=nmsthreshold)
+            log.debug(f"Classes: {type(classes)} {classes}")
+            log.debug(f"Confidences: {type(confidences)} {confidences}")
+            log.debug(f"Boxes: {type(boxes)} {boxes}")
+            for classid, confidence, box in zip(
+                    classes.flatten() if hasattr(classes, 'flatten') else [],
+                    confidences.flatten() if hasattr(confidences, 'flatten') else [],
+                    boxes
+                ):
+                label = self.names[classid]
+                if label not in self.last_objects:
+                    self.last_objects[label] = []
+                self.last_objects[label].append(VideoMotion.make_area_from_box_2(tuple(box)))
 
         if self.show:
             self.draw_objects(frame.frame, self.frame_width / float(width))
@@ -920,8 +975,14 @@ class VideoMotion(object):
     @staticmethod
     def make_area_from_box(object_tuple: Tuple[Any, ...]) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         # pylint: disable=invalid-name
-        (x1, y1, x2, y2) = object_tuple
-        area = ((x1, y1), (x2, y2))
+        (left, top, right, bottom) = object_tuple
+        area = ((left, top), (bottom, right))
+        return area
+
+    @staticmethod
+    def make_area_from_box_2(object_tuple: Tuple[Any, ...]) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+        (left, top, width, height) = object_tuple
+        area = ((left, top), (left + width, top + height))
         return area
 
     @staticmethod
@@ -1470,7 +1531,7 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
                   fps=args.fps, min_time=args.mintime, cache_time=args.cachetime,
                   multiprocess=args.processes > 1,
                   cascades=args.cascade_object, haarcascades_path=args.haarcascades_path,
-                  yolo_tiny=args.yolo_tiny,
+                  yolov3=args.yolov3, yolov4=args.yolov4, yolo_tiny=args.yolo_tiny,
                   no_object_detection=args.no_object_detection,
                   object_detect_frame_interval=10,
                   no_shade=args.no_shade,
@@ -1621,6 +1682,8 @@ def get_args(parser: ArgumentParser) -> None:
 
     parser.add_argument('--cascade-object', '-O', nargs='*', type=str, help='Specific types of objects to detect using haar cascades (slow!)')
     parser.add_argument('--haarcascades-path', '-cp', type=str, default="/usr/local/share/opencv4/haarcascades", help='Specific types of objects to detect using haar cascades (slow!)')
+    parser.add_argument('--yolov3', '-y3', action='store_true', help='Use YOLOv3 object detection')
+    parser.add_argument('--yolov4', '-y4', action='store_true', help='Use YOLOv4 object detection')
     parser.add_argument('--yolo-tiny', '-yt', action='store_true', help='Use fast common object detection')
     parser.add_argument('--no-object-detection', '-no', action='store_true', help="Don't do any object detection")
     parser.add_argument('--object-detect-frame-interval', '-oi', type=int, help='How many frames to skip before doing object detection')

@@ -18,6 +18,14 @@ Otherwise, use `python3 -mpip install -r requirements.txt --user` to install dep
 
 If you start to get errors to do with progressbar, try reinstalling `progressbar2` (`python3 -mpip install progressbar2 --user`) - something else may have installed `progressbar`, which conflicts with `progressbar2`.
 
+### A note on OpenCV2
+
+OpenCV2 is available as a pre-built package from pypi using pip, but it lags the latest OpenCV2.
+
+Right now you need to build OpenCV2 from source if you want YOLOv4 object detection.
+
+* [OpenCV2 4.4.0](https://github.com/opencv/opencv/releases/tag/4.4.0)
+
 ## Usage
 
 Use `./find_motion.py -h` and `pydoc3 find_motion.py` (or `find_motion -h` and `pydoc3 find_motion` if you installed the module) to get detailed documentation.

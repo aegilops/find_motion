@@ -4,20 +4,23 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 requirements = [
-    'mem_top>=0.1.6',
-    'orderedset>=2.0.3',
-    'opencv-python==4.2.0.34',
-    'imutils>=0.5.3',
-    'numpy>=1.19.0',
-    'cvlib>=0.2.5',
-    'progressbar2>=3.51.4',
-    'tensorflow>=1.15.3',
-    'jsonschema>=3.2.0'
+    "mem_top>=0.1.6",
+    "orderedset>=2.0.3",
+#    "opencv-python==4.2.0.34",
+# https://github.com/opencv/opencv/releases/tag/4.4.0
+    "imutils>=0.5.3",
+    "numpy>=1.19.0",
+    "cvlib>=0.2.5",
+    "progressbar2>=3.51.4",
+    "tensorflow>=1.15.3",
+    "jsonschema>=3.2.0",
+    "packaging",
+    "importlib_resources ; python_version<'3.7'"
 ]
 
 setuptools.setup(
     name="find_motion",
-    version="0.0.4",
+    version="1.0.0",
     author="Aegilops",
     author_email="41705651+aegilops@users.noreply.github.com",
     description="Processes video to detect motion and objects, with tunable parameters",
@@ -26,6 +29,7 @@ setuptools.setup(
     url="https://github.com/aegilops/find_motion",
     entry_points={"console_scripts": ["find_motion=find_motion.find_motion:main"], },
     packages=setuptools.find_packages(),
+    package_data={"find_motion": ["data/*"] },
     install_requires=requirements,
     classifiers=[
         "Programming Language :: Python :: 3",

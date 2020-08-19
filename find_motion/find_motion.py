@@ -43,19 +43,18 @@ import json
 from jsonschema import validate
 from time import strptime
 
-# get YOLOv4 data
+# to get YOLOv4 data
 try:
     import importlib.resources as importlib_resources
 except ImportError:
     # Try backported to PY<37 `importlib_resources`.
-    import importlib_resources as importlib_resources
+    import importlib_resources  # type: ignore
 from . import data
 
 from typing import List, Dict, Any, Union, Optional, Tuple, Deque, Set, Callable, Iterable, IO
 
 from collections import deque
 import copy
-import itertools
 
 from functools import partial
 from multiprocessing import Pool, Event
@@ -455,7 +454,7 @@ class VideoMotion(object):
         self.cfg: Optional[str] = None
         self.weights: Optional[str] = None
         self.net: Optional[Any] = None
-        
+
         if version.parse(cv2.__version__) <= version.parse("4.3") and self.yolov4:
             self.yolov4 = False
             self.yolov3 = True
@@ -896,11 +895,11 @@ class VideoMotion(object):
         if self.yolov4:
             # read in config, weights and names, if we haven't already
             if self.cfg is None:
-                self.cfg = importlib_resources.files(data).joinpath(f"yolov4{'-tiny' if self.tiny else ''}.cfg").as_posix()
+                self.cfg = importlib_resources.files(data).joinpath(f"yolov4{'-tiny' if self.tiny else ''}.cfg").as_posix()  # type: ignore
             if self.weights is None:
-                self.weights = importlib_resources.files(data).joinpath(f"yolov4{'-tiny' if self.tiny else ''}.weights").as_posix()
+                self.weights = importlib_resources.files(data).joinpath(f"yolov4{'-tiny' if self.tiny else ''}.weights").as_posix()  # type: ignore
             if self.names is None:
-                self.names = [n for n in open(importlib_resources.files(data).joinpath("coco.names"), "r").read().split('\n') if n is not None and n != ""]
+                self.names = [n for n in open(importlib_resources.files(data).joinpath("coco.names"), "r").read().split('\n') if n is not None and n != ""]  # type: ignore
 
             # set up the detection network, if necessary
             if self.net is None:
@@ -917,8 +916,7 @@ class VideoMotion(object):
             for classid, confidence, box in zip(
                     classes.flatten() if hasattr(classes, 'flatten') else [],
                     confidences.flatten() if hasattr(confidences, 'flatten') else [],
-                    boxes
-                ):
+                    boxes):
                 label = self.names[classid]
                 if label not in self.last_objects:
                     self.last_objects[label] = []

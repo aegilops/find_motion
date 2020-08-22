@@ -25,6 +25,8 @@ r"""
 # TODO: for hue color change detection, ignore pixels that clip to black/white or are pure gray (no hue)
 
 # TODO: multiprocess progress bars - one for each process
+
+# TODO: stack output frames
 """
 
 import sys
@@ -37,28 +39,29 @@ import math
 
 from argparse import ArgumentParser, Namespace
 from configparser import ConfigParser
+from pathlib import Path
 from packaging import version
 from ast import literal_eval
 import json
 from jsonschema import validate
 from time import strptime
 
-# get YOLOv4 data
+# to get YOLOv4 data
 try:
     import importlib.resources as importlib_resources
 except ImportError:
     # Try backported to PY<37 `importlib_resources`.
-    import importlib_resources as importlib_resources
+    import importlib_resources  # type: ignore
 from . import data
 
 from typing import List, Dict, Any, Union, Optional, Tuple, Deque, Set, Callable, Iterable, IO
 
 from collections import deque
 import copy
-import itertools
 
 from functools import partial
-from multiprocessing import Pool, Event
+from multiprocessing import Pool, Event, Pipe
+from multiprocessing.connection import Connection
 import progressbar
 from progressbar import ProgressBar
 from .DummyProgressBar import DummyProgressBar
@@ -73,6 +76,7 @@ from numpy import array as np_array
 from numpy import int32 as np_int32
 from numpy import ndarray as np_ndarray
 from numpy import float32 as np_float32
+from numpy import ones as np_ones
 
 import cv2
 import imutils
@@ -209,12 +213,13 @@ class VideoFrame(object):
     Encapsulates a single video frame, and the processing done to it.
     """
     def __init__(self, frame,
-                 show: bool, gaussian: Tuple[int, int],
+                 show: bool, show_extras: bool, gaussian: Tuple[int, int],
                  mask_areas: List[Any], scale: float = 1.0,
                  threshold: int = 0, box_size: int = 50,
                  no_shade: bool = False, no_hue: bool = False, no_edges: bool = False) -> None:
         self.raw: np_ndarray = frame
         self.show: bool = show
+        self.show_extras: bool = show_extras
         self.gaussian: Tuple[int, int] = gaussian
         self.mask_areas = mask_areas
         self.scale: float = scale
@@ -248,15 +253,11 @@ class VideoFrame(object):
         """
         Find edges in a frame.
         """
-        if self.mini is None:
-            self.mini = imutils.resize(self.raw, width=self.box_size)
-
         self.edges = cv2.convertScaleAbs(cv2.Laplacian(self.mini, cv2.CV_32F))
 
     def make_hue(self) -> None:
         """Make the hue frame."""
         hsv = cv2.cvtColor(self.mini_blur, cv2.COLOR_BGR2HSV)
-        log.debug(hsv)
         self.hue = hsv[:, :, 0]
 
     def diff(self, ref_frame: np_ndarray, ref_color: np_ndarray, ref_edges: np_ndarray) -> None:
@@ -325,10 +326,16 @@ class VideoFrame(object):
                 return
             self.edges_contours = edges_cnts
 
+    def make_mini(self) -> None:
+        """Make a small version of the frame."""
+        if self.mini is None:
+            try:
+                self.mini = imutils.resize(self.raw, width=self.box_size)
+            except cv2.error as cv_err:
+                log.error("Error resizing %s with width %d: %s", self.raw.shape, self.box_size, cv_err)
+
     def blur_frame(self) -> None:
         """Blur the gray scale and hue frames."""
-        if self.mini is None:
-            self.mini = imutils.resize(self.raw, width=self.box_size)
         if not self.no_hue:
             self.mini_blur = cv2.GaussianBlur(self.mini, self.gaussian, 0)
         if not self.no_shade:
@@ -390,21 +397,26 @@ class VideoMotion(object):
     Detect any objects present when motion is seen.
     """
     # pylint: disable=too-many-instance-attributes,too-many-arguments
-    def __init__(self, filename: Union[str, int]=None, outdir: str='', fps: int=30,
+    def __init__(self, filename: Union[str, int],
+                 connection: Optional[Connection]=None,
+                 outdir: str='', fps: int=30,
                  box_size: int=100, min_box_scale: int=50, cache_time: float=3.0, min_time: float=0.25,
                  threshold: int=7, avg: float=0.05, blur_scale: int=20,
-                 mask_areas: list=None, show: bool=False,
+                 mask_areas: list=None, show: bool=False, show_extras: bool=False,
                  codec: str='MJPG', log_level: int=logging.INFO,
                  mem: bool=False, cleanup: bool=False,
                  multiprocess: bool=False,
                  cascades: List[str]=None,
                  haarcascades_path: str="/usr/local/share/opencv4/haarcascades",
                  yolov3: bool=False, yolov4: bool=False, yolo_tiny: bool=False,
+                 confidence: float=0.25,
+                 yolo_path: Optional[str]=None,
                  no_object_detection: bool=False,
                  object_detect_frame_interval: int=10,
                  no_shade: bool=False, no_hue: bool=False, no_edges: bool = False,
                  no_output: bool=False) -> None:
         self.filename = filename
+        self.connection = connection
 
         if self.filename is None:
             raise Exception('Filename required')
@@ -441,6 +453,7 @@ class VideoMotion(object):
         self.avg: float = avg
         self.mask_areas: List[Any] = mask_areas if mask_areas is not None else []
         self.show: bool = show
+        self.show_extras: bool = show_extras
         self.no_output: bool = no_output
 
         self.log.debug('Caching {} frames, min motion {} frames'.format(self.cache_frames, self.min_movement_frames))
@@ -451,11 +464,14 @@ class VideoMotion(object):
         self.haarcascades_path: str = haarcascades_path
         self.yolov3: bool = yolov3
         self.yolov4: bool = yolov4
+        self.tiny: bool = yolo_tiny
+        self.confidence: float = confidence
+        self.yolo_path: Optional[str] = yolo_path
         self.names: Optional[List] = None
         self.cfg: Optional[str] = None
         self.weights: Optional[str] = None
         self.net: Optional[Any] = None
-        
+
         if version.parse(cv2.__version__) <= version.parse("4.3") and self.yolov4:
             self.yolov4 = False
             self.yolov3 = True
@@ -463,10 +479,12 @@ class VideoMotion(object):
             self.log.warning("Cannot use YOLOV4, OpenCV2 needs to be at 4.4.0 or above")
             self.log.warning("Try building from source if you rely on the opencv-python package from pypi, and that is not yet at that level, or update the package with pip")
 
+        if self.yolov4:
+            self._prepare_yolov4()
+
         self.cascades: Optional[Dict[str, Any]] = None
         self._load_cascades()
         self.log.debug(str(self.cascades))
-        self.tiny = yolo_tiny
 
         self.codec: str = codec
         self.debug: bool = log_level == logging.DEBUG
@@ -508,7 +526,7 @@ class VideoMotion(object):
 
     def _load_cascades(self) -> None:
         """
-        Load object recognition cascades named in options
+        Load object recognition cascades named in options.
         """
         if self.cascade_names is not None:
             if 'ALL' in self.cascade_names:
@@ -524,9 +542,39 @@ class VideoMotion(object):
             self.log.debug('No cascades')
             self.cascades = dict()
 
+    def _prepare_yolov4(self) -> None:
+        """
+        Read in config, weights and names, and set up model
+        """
+        # TODO: download and cache yolov4.cfg and yolov4.weights from a suitable place
+        # TODO: also do that for YOLOv3, merge functions - and let user specify the prefix for the model (e.g. "yolo3") 
+        # use built-in cfg/weights unless a path is provided
+        cfg_path = importlib_resources.files(data) if self.yolo_path is None else Path(self.yolo_path)
+
+        # read in config, weights and names list
+        try:
+            self.cfg = cfg_path.joinpath(f"yolov4{'-tiny' if self.tiny else ''}.cfg").as_posix()  # type: ignore
+            self.weights = cfg_path.joinpath(f"yolov4{'-tiny' if self.tiny else ''}.weights").as_posix()  # type: ignore
+            self.names = [n for n in open(cfg_path.joinpath("coco.names"), "r").read().split('\n') if n is not None and n != ""]  # type: ignore
+        except Exception as err:
+            self.log.error("Failed to read in YOLOv4 configuration: %s", err)
+            self.yolov4 = False
+            return
+
+        # set up the detection network
+        try:
+            self.net = cv2.dnn_DetectionModel(self.cfg, self.weights)
+            self.net.setInputSize(608, 608)
+            self.net.setInputScale(1.0 / 255)
+            self.net.setInputSwapRB(True)
+        except Exception as err:
+            self.log.error("Failed to set up YOLOv4 model: %s", err)
+            self.yolov4 = False
+            return
+
     def _calc_min_area(self) -> None:
         """
-        Set the minimum motion area based on the box size
+        Set the minimum motion area based on the box size.
         """
         self.min_area = int(math.pow(self.box_size / self.min_box_scale, 2))
 
@@ -600,13 +648,23 @@ class VideoMotion(object):
 
     def _make_gaussian(self) -> None:
         """
-        Make a gaussian for the blur using the box size as a guide
+        Make a gaussian for the blur using the box size as a guide.
         """
         gaussian_size = int(self.box_size / self.gaussian_scale)
         gaussian_size = gaussian_size + 1 if gaussian_size % 2 == 0 else gaussian_size
         self.gaussian = (gaussian_size, gaussian_size)
 
+    def make_mini(self, frame=None) -> None:
+        """
+        Make a small version of the frame.
+        """
+        frame = self.current_frame if frame is None else frame
+        frame.make_mini()
+
     def find_edges(self, frame=None) -> None:
+        """
+        Find edges in the frame.
+        """
         frame = self.current_frame if frame is None else frame
         frame.find_edges()
 
@@ -625,7 +683,7 @@ class VideoMotion(object):
         if not ret:
             return False
 
-        self.current_frame = VideoFrame(frame, self.show, self.gaussian,
+        self.current_frame = VideoFrame(frame, self.show, self.show_extras, self.gaussian,
                                         self.mask_areas, self.scale,
                                         self.delta_thresh, self.box_size,
                                         self.no_shade, self.no_hue)
@@ -847,7 +905,7 @@ class VideoMotion(object):
             self.movement = True
 
     # TODO: allow tweaking object detection settings - width, scale, neightbours and confidence
-    def find_objects(self, frame: VideoFrame=None, width=300, scaleFactor=1.1, minNeighbours=5, confidence=0.25, nmsthreshold=0.5) -> Set[str]:
+    def find_objects(self, frame: VideoFrame=None, width=300, scaleFactor=1.1, minNeighbours=5, nmsthreshold=0.5) -> Set[str]:
         frame = self.current_frame if frame is None else frame
 
         # TODO: can we reuse an already done resize?
@@ -882,7 +940,7 @@ class VideoMotion(object):
         if self.yolov3:
             model = f"yolov3{'-tiny' if self.tiny else ''}"
             self.log.debug(f'Common objects with {model}')
-            bboxes, labels, _confs = cv.detect_common_objects(frame.resized, confidence=confidence, model=model)
+            bboxes, labels, _confs = cv.detect_common_objects(frame.resized, confidence=self.confidence, model=model)
             self.log.debug('Common objects: done')
             cvlib_objects = list(zip(bboxes, labels))
             for box, label in cvlib_objects:
@@ -894,31 +952,15 @@ class VideoMotion(object):
         # based on code snippet in https://github.com/opencv/opencv/pull/17185 that enabled support for YOLOv4 in OpenCV
         # TODO: only yolov4-tiny is working - get yolov4 working
         if self.yolov4:
-            # read in config, weights and names, if we haven't already
-            if self.cfg is None:
-                self.cfg = importlib_resources.files(data).joinpath(f"yolov4{'-tiny' if self.tiny else ''}.cfg").as_posix()
-            if self.weights is None:
-                self.weights = importlib_resources.files(data).joinpath(f"yolov4{'-tiny' if self.tiny else ''}.weights").as_posix()
-            if self.names is None:
-                self.names = [n for n in open(importlib_resources.files(data).joinpath("coco.names"), "r").read().split('\n') if n is not None and n != ""]
-
-            # set up the detection network, if necessary
-            if self.net is None:
-                self.net = cv2.dnn_DetectionModel(self.cfg, self.weights)
-                self.net.setInputSize(608, 608)
-                self.net.setInputScale(1.0 / 255)
-                self.net.setInputSwapRB(True)
-
             # do detection in this frame
-            classes, confidences, boxes = self.net.detect(frame.resized, confThreshold=confidence, nmsThreshold=nmsthreshold)
+            classes, confidences, boxes = self.net.detect(frame.resized, confThreshold=self.confidence, nmsThreshold=nmsthreshold)
             log.debug(f"Classes: {type(classes)} {classes}")
             log.debug(f"Confidences: {type(confidences)} {confidences}")
             log.debug(f"Boxes: {type(boxes)} {boxes}")
             for classid, confidence, box in zip(
                     classes.flatten() if hasattr(classes, 'flatten') else [],
                     confidences.flatten() if hasattr(confidences, 'flatten') else [],
-                    boxes
-                ):
+                    boxes):
                 label = self.names[classid]
                 if label not in self.last_objects:
                     self.last_objects[label] = []
@@ -1032,14 +1074,29 @@ class VideoMotion(object):
         """Main loop. Find motion in frames."""
         while self.is_open():
 
+            # pause/unpause
             if self.multiprocess:
                 self.log.debug('Waiting...')
-                # unpaused.wait()
+                unpaused.wait()
 
+            if VideoMotion.key_pressed(' '):
+                if self.multiprocess:
+                    if self.connection is not None:
+                        # signal to main process that we are pausing
+                        self.log.debug('Pausing')
+                        self.connection.send('stop')
+                else:
+                    while True:
+                        if VideoMotion.key_pressed(' '):
+                            break
+                        time.sleep(1)
+
+            # reading starts
             if not self.read():
                 self.log.debug('Reading did not succeed')
                 break
 
+            self.make_mini()
             self.blur_frame()
             self.mask_off_areas()
             if not self.no_hue:
@@ -1065,12 +1122,8 @@ class VideoMotion(object):
 
             self.log.debug('Decided output')
 
-            if self.show:
+            if self.show_extras:
                 self.show_frames()
-                if self.ref_scaled is not None:
-                    self.log.debug('Showing ref frame')
-                    cv2.imshow('avg', self.ref_scaled)
-                    cv2.imshow("avg color", self.ref_color)
 
             self.log.debug('Decided to show frames or not')
 
@@ -1118,6 +1171,14 @@ class VideoMotion(object):
                     cv2.imshow("delta", cf.frame_delta)
                 if cf.edges is not None:
                     cv2.imshow("edges", cf.edges)
+
+                self.log.debug('Showing ref frames')
+                if self.ref_scaled is not None:            
+                    cv2.imshow('avg gray', self.ref_scaled)
+                if self.ref_color_scaled is not None: 
+                    cv2.imshow("avg color", self.ref_color_scaled)
+                if self.ref_edges_scaled is not None: 
+                    cv2.imshow("avg edges", self.ref_edges_scaled)
             except Exception as e:
                 self.log.error('Oops: {}'.format(e))
         else:
@@ -1216,7 +1277,7 @@ class ClockTime(object):
             self.__gt__(other)
 
 
-def run_vid(filename: Union[str, int], **kwargs) -> Tuple[Optional[bool], Union[str, int], Optional[str], Optional[Tuple[str, ...]]]:
+def run_vid(filename: Union[str, int], connection: Optional[Connection]=None, **kwargs) -> Tuple[Optional[bool], Union[str, int], Optional[str], Optional[Tuple[str, ...]]]:
     """
     Video creation and runner function to pass to multiprocessing pool
     """
@@ -1224,7 +1285,8 @@ def run_vid(filename: Union[str, int], **kwargs) -> Tuple[Optional[bool], Union[
     seen_objects = None
     err_msg = None
     try:
-        vid = VideoMotion(filename=filename, **kwargs)
+        log.debug(kwargs)
+        vid = VideoMotion(filename=filename, connection=connection, **kwargs)
         if vid.loaded:
             log.debug('Video loaded')
             wrote_frames, err_msg, seen_objects = vid.find_motion()
@@ -1269,9 +1331,13 @@ def run_pool(job: Callable[..., Any], processes: int, files: Iterable[str]=None,
 
     try:
         pool = Pool(processes=processes, initializer=partial(init_worker, unpaused))
+        parent_conns: List[Connection] = []
+        unpaused.set()
 
         for filename in files:
-            results.append(pool.apply_async(job, (filename,)))
+            parent_conn, child_conn = Pipe()
+            parent_conns.append(parent_conn) 
+            results.append(pool.apply_async(job, (filename, child_conn)))
 
         num_err = 0
         num_wrote = 0
@@ -1307,6 +1373,31 @@ def run_pool(job: Callable[..., Any], processes: int, files: Iterable[str]=None,
             if num_done == num_files:
                 log.debug("All processes completed. {} errors, wrote {} files".format(num_err, num_wrote))
                 break
+
+            for connection in parent_conns:
+                if connection.poll():
+                    try:
+                        msg = connection.recv()
+                        log.info(msg)
+                        if msg == "stop":
+                            log.info("Stopping")
+                            unpaused.clear()
+                        elif msg == "go":
+                            log.info("Going")
+                            unpaused.set()
+                    except EOFError:
+                        pass
+
+            # TODO: play/pause button with text saying "press space to stop/play"
+            cv2.imshow("Unpause", np_ones([300, 300, 1]))
+
+            if VideoMotion.key_pressed(' '):
+                if unpaused.is_set():
+                    log.info("Pausing - global")
+                    unpaused.clear()
+                else:
+                    log.info("Unpausing - global")
+                    unpaused.set()
 
             time.sleep(1)
     except KeyboardInterrupt:
@@ -1523,7 +1614,8 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
 
     job = partial(run_vid,
                   outdir=args.output_dir, mask_areas=masks,
-                  show=args.show, codec=args.codec,
+                  show=args.show, show_extras=args.show_extras,
+                  codec=args.codec,
                   log_level=logging.DEBUG if args.debug else logging.INFO,
                   mem=args.mem, cleanup=args.cleanup,
                   blur_scale=args.blur_scale, box_size=args.box_size, min_box_scale=args.min_box_scale,
@@ -1532,8 +1624,10 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
                   multiprocess=args.processes > 1,
                   cascades=args.cascade_object, haarcascades_path=args.haarcascades_path,
                   yolov3=args.yolov3, yolov4=args.yolov4, yolo_tiny=args.yolo_tiny,
+                  confidence=args.confidence,
+                  yolo_path=args.yolo_path,
                   no_object_detection=args.no_object_detection,
-                  object_detect_frame_interval=10,
+                  object_detect_frame_interval=args.object_detect_frame_interval,
                   no_shade=args.no_shade,
                   no_hue=args.no_hue,
                   no_output=args.no_output)
@@ -1685,8 +1779,10 @@ def get_args(parser: ArgumentParser) -> None:
     parser.add_argument('--yolov3', '-y3', action='store_true', help='Use YOLOv3 object detection')
     parser.add_argument('--yolov4', '-y4', action='store_true', help='Use YOLOv4 object detection')
     parser.add_argument('--yolo-tiny', '-yt', action='store_true', help='Use fast common object detection')
+    parser.add_argument('--confidence', '-ct', type=float, default=0.25, help='Confidence threshold for object detection')
+    parser.add_argument('--yolo-path', '-yp', help='A path to the cfg/weights files used by yolo3 and yolo4 (e.g. yolo4.cfg and yolo4.weights)')
     parser.add_argument('--no-object-detection', '-no', action='store_true', help="Don't do any object detection")
-    parser.add_argument('--object-detect-frame-interval', '-oi', type=int, help='How many frames to skip before doing object detection')
+    parser.add_argument('--object-detect-frame-interval', '-oi', type=int, default=1, help='Do object detection every N frames')
 
     parser.add_argument('--no-shade', '-ns', action="store_true", help="Don't use gray scale shade to detect motion")
     parser.add_argument('--no-hue', '-nh', action="store_true", help="Don't use color hue to detect motion")
@@ -1703,7 +1799,8 @@ def get_args(parser: ArgumentParser) -> None:
     parser.add_argument('--processes', '-J', default=1, type=int, help='Number of processors to use')
 
     parser.add_argument('--progress', '-p', action='store_true', help='Show progress bar')
-    parser.add_argument('--show', '-s', action='store_true', default=False, help='Show video processing')
+    parser.add_argument('--show', '-s', action='store_true', default=False, help='Show main video')
+    parser.add_argument('--show-extras', '-e', action='store_true', default=False, help='Show additional processing video')
 
     parser.add_argument('--cleanup', '-cu', action='store_true', help='Cleanup used frames (do not wait for garbage collection)')
     parser.add_argument('--mem', '-u', action='store_true', help='Run memory usage')

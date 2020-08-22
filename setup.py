@@ -6,8 +6,8 @@ with open("README.md", "r") as fh:
 requirements = [
     "mem_top>=0.1.6",
     "orderedset>=2.0.3",
-#    "opencv-python==4.2.0.34",
-# https://github.com/opencv/opencv/releases/tag/4.4.0
+    # "opencv-python==4.2.0.34",
+    # https://github.com/opencv/opencv/releases/tag/4.4.0
     "imutils>=0.5.3",
     "numpy>=1.19.0",
     "cvlib>=0.2.5",
@@ -29,7 +29,7 @@ setuptools.setup(
     url="https://github.com/aegilops/find_motion",
     entry_points={"console_scripts": ["find_motion=find_motion.find_motion:main"], },
     packages=setuptools.find_packages(),
-    package_data={"find_motion": ["data/*"] },
+    package_data={"find_motion": ["data/*"]},
     install_requires=requirements,
     classifiers=[
         "Programming Language :: Python :: 3",

@@ -1397,7 +1397,7 @@ def run_pool(job: Callable[..., Any], processes: int, files: Iterable[str]=None,
                         elif msg == "go":
                             log.info("Going")
                             unpaused.set()
-                    except EOFError, BrokenPipeError:
+                    except (EOFError, BrokenPipeError):
                         pass
 
             # TODO: play/pause button with text saying "press space to stop/play"

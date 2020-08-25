@@ -547,19 +547,31 @@ class VideoMotion(object):
         Read in config, weights and names, and set up model
         """
         # TODO: download and cache yolov4.cfg and yolov4.weights from a suitable place
-        # TODO: also do that for YOLOv3, merge functions - and let user specify the prefix for the model (e.g. "yolo3") 
+        # TODO: also do that for YOLOv3, merge functions - and let user specify the prefix for the model (e.g. "yolo3")
+        # TODO: allow a different name for the names file
         # use built-in cfg/weights unless a path is provided
-        cfg_path = importlib_resources.files(data) if self.yolo_path is None else Path(self.yolo_path)
-
-        # read in config, weights and names list
         try:
-            self.cfg = cfg_path.joinpath(f"yolov4{'-tiny' if self.tiny else ''}.cfg").as_posix()  # type: ignore
-            self.weights = cfg_path.joinpath(f"yolov4{'-tiny' if self.tiny else ''}.weights").as_posix()  # type: ignore
-            self.names = [n for n in open(cfg_path.joinpath("coco.names"), "r").read().split('\n') if n is not None and n != ""]  # type: ignore
+            cfg_file = f"yolov4{'-tiny' if self.tiny else ''}.cfg"
+            weights_file = f"yolov4{'-tiny' if self.tiny else ''}.weights"
+            names_file = "coco.names"
+            if self.yolo_path:
+                cfg_path = Path(self.yolo_path)
+                self.cfg = cfg_path.joinpath(cfg_file).as_posix()  # type: ignore
+                self.weights = cfg_path.joinpath(weights_file).as_posix()  # type: ignore
+                names_file_path = cfg_path.joinpath(names_file)
+            else:
+                with importlib_resources.path(data, cfg_file) as cfg_file_path:
+                    self.cfg = cfg_file_path.as_posix()
+                with importlib_resources.path(data, weights_file) as weights_file_path:
+                    self.weights = weights_file_path.as_posix()
+                with importlib_resources.path(data, names_file) as _names_file_path:
+                    names_file_path = _names_file_path.as_posix()
         except Exception as err:
             self.log.error("Failed to read in YOLOv4 configuration: %s", err)
             self.yolov4 = False
             return
+
+        self.names = [n for n in open(names_file_path, "r", encoding="utf-8").read().split('\n') if n is not None and n != ""]  # type: ignore
 
         # set up the detection network
         try:

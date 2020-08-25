@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 requirements = [
     "mem_top>=0.1.6",
     "orderedset>=2.0.3",
-    # "opencv-python==4.2.0.34",
+    "opencv-python==4.4.0.42",
     # https://github.com/opencv/opencv/releases/tag/4.4.0
     "imutils>=0.5.3",
     "numpy>=1.19.0",

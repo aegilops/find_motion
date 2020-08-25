@@ -20,11 +20,11 @@ If you start to get errors to do with progressbar, try reinstalling `progressbar
 
 ### A note on OpenCV2
 
-OpenCV2 is available as a pre-built package from pypi using pip, but it lags the latest OpenCV2.
+OpenCV2 is available as a pre-built package from pypi using pip, but it can lag the latest OpenCV2.
 
-Right now you need to build OpenCV2 from source if you want YOLOv4 object detection.
+You can build OpenCV2 from source if it has features missing from the pip package, or to possibly improve performance:
 
-* [OpenCV2 4.4.0](https://github.com/opencv/opencv/releases/tag/4.4.0)
+* [OpenCV2 GitHub](https://github.com/opencv/opencv/)
 
 ## Usage
 

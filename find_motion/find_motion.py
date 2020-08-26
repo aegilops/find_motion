@@ -1387,8 +1387,8 @@ def run_pool(job: Callable[..., Any], processes: int, files: Iterable[str]=None,
                 break
 
             for connection in parent_conns:
-                if connection.poll():
-                    try:
+                try:
+                    if connection.poll():
                         msg = connection.recv()
                         log.info(msg)
                         if msg == "stop":
@@ -1397,8 +1397,8 @@ def run_pool(job: Callable[..., Any], processes: int, files: Iterable[str]=None,
                         elif msg == "go":
                             log.info("Going")
                             unpaused.set()
-                    except (EOFError, BrokenPipeError):
-                        pass
+                except (EOFError, ConnectionError):
+                    pass
 
             # TODO: play/pause button with text saying "press space to stop/play"
             cv2.imshow("Unpause", np_ones([300, 300, 1]))

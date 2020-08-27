@@ -921,8 +921,6 @@ class VideoMotion(object):
         scale: float = self.frame_width / float(width)
         frame.mask_off_frame(frame.resized, 1 / scale)
 
-        cv2.imshow("resized", frame.resized)
-
         self.object_counter += 1
         if self.object_counter != self.object_detect_frame_interval:
             if self.show:
@@ -1183,6 +1181,8 @@ class VideoMotion(object):
                     cv2.imshow("delta", cf.frame_delta)
                 if cf.edges is not None:
                     cv2.imshow("edges", cf.edges)
+                if cf.resized is not None:
+                    cv2.imshow("resized", cf.resized)
 
                 self.log.debug('Showing ref frames')
                 if self.ref_scaled is not None:            

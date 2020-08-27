@@ -346,36 +346,26 @@ class VideoFrame(object):
 
     def mask_off_areas(self) -> None:
         """Mask off the gray scale, hue and edge frames."""
+        if not self.no_shade:
+            self.mask_off_frame(self.gray_blur, self.scale)
+        if not self.no_hue:
+            self.mask_off_frame(self.mini_blur, self.scale)
+        if not self.no_edges:
+            self.mask_off_frame(self.edges, self.scale)
+
+    def mask_off_frame(self, frame: np_ndarray, scale: float) -> None:
         for area in self.mask_areas:
-            scaled_area = VideoMotion.scale_area(area, self.scale)
+            scaled_area = VideoMotion.scale_area(area, scale)
             dim = len(scaled_area)
             if dim == 2:
-                if not self.no_shade:
-                    cv2.rectangle(self.gray_blur,
-                                  *scaled_area,
-                                  BLACK, cv2.FILLED)
-                if not self.no_hue:
-                    cv2.rectangle(self.mini_blur,
-                                  *scaled_area,
-                                  BLACK, cv2.FILLED)
-                if not self.no_edges:
-                    cv2.rectangle(self.edges,
-                                  *scaled_area,
-                                  BLACK, cv2.FILLED)
+                cv2.rectangle(frame,
+                                *scaled_area,
+                                BLACK, cv2.FILLED)
             else:
                 pts = np_array(scaled_area, np_int32)
-                if not self.no_shade:
-                    cv2.fillConvexPoly(self.gray_blur,
-                                       pts,
-                                       BLACK)
-                if not self.no_hue:
-                    cv2.fillConvexPoly(self.mini_blur,
-                                       pts,
-                                       BLACK)
-                if not self.no_edges:
-                    cv2.fillConvexPoly(self.edges,
-                                       pts,
-                                       BLACK)
+                cv2.fillConvexPoly(frame,
+                                    pts,
+                                    BLACK)
 
     def cleanup(self) -> None:
         """
@@ -928,11 +918,15 @@ class VideoMotion(object):
 
         # TODO: can we reuse an already done resize?
         frame.resized = imutils.resize(frame.raw, width=width)
+        scale: float = self.frame_width / float(width)
+        frame.mask_off_frame(frame.resized, 1 / scale)
+
+        cv2.imshow("resized", frame.resized)
 
         self.object_counter += 1
         if self.object_counter != self.object_detect_frame_interval:
             if self.show:
-                self.draw_objects(frame.frame, self.frame_width / float(width))
+                self.draw_objects(frame.frame, scale)
             return set()
         self.object_counter = 0
 

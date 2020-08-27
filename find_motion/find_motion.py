@@ -17,9 +17,6 @@ r"""
 
 # TODO: have args as provided by argparse take priority over those in the config (currently it is vv)
 
-# TODO: look at more OpenCV functions, e.g.
-    https://docs.opencv.org/3.2.0/d7/de9/group__video.html
-
 # TODO: add other output streams - not just to files, to cloud, sFTP server or email
 
 # TODO: for hue color change detection, ignore pixels that clip to black/white or are pure gray (no hue)
@@ -27,6 +24,12 @@ r"""
 # TODO: multiprocess progress bars - one for each process
 
 # TODO: stack output frames
+
+# TODO: suppress tensorflow info and warnings
+
+# TODO: allow object detection even with no movement
+
+# TODO: object detection only in areas of frame with bounding boxes for motion
 """
 
 import sys
@@ -232,27 +235,29 @@ class VideoFrame(object):
 
         self.frame: Optional[np_ndarray] = self.raw.copy() if self.show else None
         self.in_cache: bool = False
+
         self.contours: List = []
         self.color_contours: List = []
         self.edges_contours: List = []
+        
         self.frame_delta: np_ndarray = None
         self.color_delta: np_ndarray = None
         self.edges_delta: np_ndarray = None
+        
         self.mini: np_ndarray = None
         self.hue: np_ndarray = None
         self.mini_blur: np_ndarray = None
         self.gray: np_ndarray = None
-        self.thresh: np_ndarray = None
-        self.color_thresh: np_ndarray = None
-        self.edges_thresh: np_ndarray = None
         self.gray_blur: np_ndarray = None
         self.resized: np_ndarray = None
         self.edges: np_ndarray = None
 
+        self.thresh: np_ndarray = None
+        self.color_thresh: np_ndarray = None
+        self.edges_thresh: np_ndarray = None        
+        
     def find_edges(self):
-        """
-        Find edges in a frame.
-        """
+        """Find edges in a frame."""
         self.edges = cv2.convertScaleAbs(cv2.Laplacian(self.mini, cv2.CV_32F))
 
     def make_hue(self) -> None:
@@ -261,9 +266,7 @@ class VideoFrame(object):
         self.hue = hsv[:, :, 0]
 
     def diff(self, ref_frame: np_ndarray, ref_color: np_ndarray, ref_edges: np_ndarray) -> None:
-        """
-        Find the diff between this frame and the reference frame.
-        """
+        """Find the diff between this frame and the reference frame."""
         if not self.no_shade:
             self.frame_delta = cv2.absdiff(self.gray_blur, ref_frame)
         if not self.no_hue:
@@ -272,9 +275,7 @@ class VideoFrame(object):
             self.edges_delta = cv2.cvtColor(cv2.absdiff(self.edges, ref_edges), cv2.COLOR_BGR2GRAY)
 
     def threshold(self) -> None:
-        """
-        Find the threshold of the diff.
-        """
+        """Find the threshold of the diff."""
         if not self.no_shade:
             self.thresh = cv2.threshold(self.frame_delta, thresh=self.threshold_value, maxval=255, type=cv2.THRESH_BINARY)[1]
         if not self.no_hue:
@@ -750,6 +751,8 @@ class VideoMotion(object):
 
         if (self.movement_counter >= self.min_movement_frames) or (self.movement_decay > 0):
             self.log.debug('There is movement')
+            # reset counter
+            self.movement_counter = 0
             # show cached frames
             if self.movement:
                 self.movement_decay = self.cache_frames

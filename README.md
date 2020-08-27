@@ -28,7 +28,12 @@ You can build OpenCV2 from source if it has features missing from the pip packag
 
 ## Usage
 
-Use `./find_motion.py -h` and `pydoc3 find_motion.py` (or `find_motion -h` and `pydoc3 find_motion` if you installed the module) to get detailed documentation.
+Use `./find_motion.py -h` and `pydoc3 find_motion.py` (or `find_motion -h` and `pydoc3 find_motion` if you installed the module) to get detailed documentation of the command-line options.
+
+### Keyboard controls
+* `Ctrl-c`: at the command-line - ends all processing.
+* `q`: skip to the next video.
+* `spacebar`: on an output frame this will pause processing. On the "unpause" window this will pause/unpause processing.  
 
 ### Tuning
 
@@ -38,7 +43,7 @@ To reduce false motion from shadows, wind movement, noise, sun glare and so on, 
 
 * Threshold
 
-  How much difference in gray level between frames counts as a difference
+  How much difference in gray/hue/edge level between frames counts as a difference
 * Minimum time
 
   How long a difference in the background must be seen for to count as motion
@@ -79,5 +84,3 @@ Progress is logged by default in `progress.log` in the output directory.
 You can provide an INI format file with a single `[settings]` section using the `--config` option.
 
 Use the same names as the optional arguments given in the help for the fields of the settings file.
-
-

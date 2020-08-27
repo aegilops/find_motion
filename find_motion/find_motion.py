@@ -23,17 +23,21 @@ r"""
 
 # TODO: multiprocess progress bars - one for each process
 
-# TODO: stack output frames
+# TODO: stack extra output frames
 
-# TODO: suppress tensorflow info and warnings
+# TODO: object detection only in areas of frame near bounding boxes for motion
 
-# TODO: allow object detection even with no movement
+# TODO: allow drawing areas on frame to specify masks
 
-# TODO: object detection only in areas of frame with bounding boxes for motion
+# TODO: add play/pause/stop and other playback controls with keyboard shortcuts
 """
 
 import sys
 import os
+
+import warnings
+warnings.filterwarnings(action="ignore", message=r"Passing \(type, 1\) or '1type' as a synonym of type is deprecated", category=FutureWarning, module=".*")
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import signal
 import time
@@ -71,9 +75,6 @@ from .DummyProgressBar import DummyProgressBar
 
 from mem_top import mem_top
 from orderedset import OrderedSet
-
-import warnings
-warnings.filterwarnings("ignore", r"Passing \(type, 1\) or '1type' as a synonym of type is deprecated", FutureWarning, ".*")
 
 from numpy import array as np_array
 from numpy import int32 as np_int32
@@ -413,6 +414,7 @@ class VideoMotion(object):
                  confidence: float=0.25,
                  yolo_path: Optional[str]=None,
                  no_object_detection: bool=False,
+                 always_object_detection: bool=False,
                  object_detect_frame_interval: int=10,
                  no_shade: bool=False, no_hue: bool=False, no_edges: bool = False,
                  no_output: bool=False) -> None:
@@ -460,6 +462,7 @@ class VideoMotion(object):
         self.log.debug('Caching {} frames, min motion {} frames'.format(self.cache_frames, self.min_movement_frames))
 
         self.no_object_detection: bool = no_object_detection
+        self.always_object_detection: bool = always_object_detection
         self.object_detect_frame_interval: int = object_detect_frame_interval
         self.cascade_names: Optional[List[str]] = cascades if not self.no_object_detection else []
         self.haarcascades_path: str = haarcascades_path
@@ -768,12 +771,12 @@ class VideoMotion(object):
 
                 self.frame_cache.clear()
 
-                # identify objects
-                if not self.no_object_detection:
-                    objects = self.find_objects()   # TODO: pass args to set params
-                    if objects is not None and objects:
-                        self.log.debug("Saw {} in motion".format(objects))
-                        self.seen_objects.update(objects)
+            # identify objects
+            if self.movement and not self.no_object_detection or self.always_object_detection:
+                objects = self.find_objects()   # TODO: pass args to set params
+                if objects is not None and objects:
+                    self.log.debug("Saw {} in motion".format(objects))
+                    self.seen_objects.update(objects)
 
             # draw the text
             if self.show:
@@ -1642,6 +1645,7 @@ def run(args: Namespace, print_help: Callable=lambda x: None) -> None:
                   confidence=args.confidence,
                   yolo_path=args.yolo_path,
                   no_object_detection=args.no_object_detection,
+                  always_object_detection=args.always_object_detection,
                   object_detect_frame_interval=args.object_detect_frame_interval,
                   no_shade=args.no_shade,
                   no_hue=args.no_hue,
@@ -1747,20 +1751,20 @@ def process_config(config_file: str, args: Namespace) -> Namespace:
     for setting, value in config['settings'].items():
         setting = setting.replace('-', '_')
         use_value: Any = value
-        if setting in ('processes', 'blur_scale', 'min_box_scale', 'threshold', 'fps', 'box_size'):
+        if setting in ('processes', 'blur_scale', 'min_box_scale', 'threshold', 'fps', 'box_size', 'object_detection_frame_interval'):
             use_value = int(value)
-        if setting in ('mintime', 'cachetime', 'avg'):
+        if setting in ('mintime', 'cachetime', 'avg', 'confidence'):
             use_value = float(value)
-        if setting in ('mem', 'progress', 'debug', 'show', 'ignore_progress', 'ignore_drive', 'yolo_tiny', 'no_shade', 'no_hue', 'no_object_detection'):
+        if setting in ('mem', 'progress', 'cleanup', 'debug', 'test', 'show', 'show_extras', 'ignore_progress', 'ignore_drive', 'no_object_detection', 'always_object_detection', 'no_output', 'yolov4', 'yolov3', 'yolo_tiny', 'no_shade', 'no_hue', 'no_object_detection', 'no_shade', 'no_hue', 'no_edges'):
             if value == 'True':
                 use_value = True
             elif value == 'False':
                 use_value = False
             else:
                 raise ValueError('{} must be True or False'.format(setting))
-        if setting in ('masks', 'cameras', 'time_order'):
+        if setting in ('masks', 'cameras', 'time_order', 'cascade_object'):
             use_value = literal_eval(value)
-            # TODO: validate that this is a list of tuples of int (masks) or a list of ints (cameras) or a list of strings (time_order)
+            # TODO: validate that this is a list of tuples of int (masks) or a list of ints (cameras) or a list of strings (time_order, cascade_object)
         args.__setattr__(setting, use_value)
     log.debug(str(vars(args)))
     return args
@@ -1770,6 +1774,7 @@ def get_args(parser: ArgumentParser) -> None:
     """
     Set how to process command line arguments.
     """
+    # TODO: add sections to make help easier
     parser.add_argument('files', nargs='*', help='Video files to find motion in')
 
     parser.add_argument('--config', '-c', help='Config in INI format')
@@ -1797,6 +1802,7 @@ def get_args(parser: ArgumentParser) -> None:
     parser.add_argument('--confidence', '-ct', type=float, default=0.25, help='Confidence threshold for object detection')
     parser.add_argument('--yolo-path', '-yp', help='A path to the cfg/weights files used by yolo3 and yolo4 (e.g. yolo4.cfg and yolo4.weights)')
     parser.add_argument('--no-object-detection', '-no', action='store_true', help="Don't do any object detection")
+    parser.add_argument('--always-object-detection', '-ao', action='store_true', help="Always do any object detection")
     parser.add_argument('--object-detect-frame-interval', '-oi', type=int, default=1, help='Do object detection every N frames')
 
     parser.add_argument('--no-shade', '-ns', action="store_true", help="Don't use gray scale shade to detect motion")

@@ -26,6 +26,14 @@ You can build OpenCV2 from source if it has features missing from the pip packag
 
 * [OpenCV2 GitHub](https://github.com/opencv/opencv/)
 
+### Installing on Windows
+
+Some of the dependencies may be nested so deep that they exceed `MAX_PATH` on Windows.
+
+If you are using Windows 10, try opting in to the new long file names, which have no length limit:
+
+* [Enable long paths in Windows 10 version 1607 and later](https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file#enable-long-paths-in-windows-10-version-1607-and-later)
+
 ## Usage
 
 Use `./find_motion.py -h` and `pydoc3 find_motion.py` (or `find_motion -h` and `pydoc3 find_motion` if you installed the module) to get detailed documentation of the command-line options.

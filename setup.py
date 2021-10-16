@@ -6,16 +6,16 @@ with open("README.md", "r") as fh:
 requirements = [
     "mem_top>=0.1.6",
     "orderedset>=2.0.3",
-    "opencv-python==4.4.0.42",
+    "opencv-python==4.5.3.36",
     # https://github.com/opencv/opencv/releases/tag/4.4.0
     "imutils>=0.5.3",
-    "numpy>=1.19.0",
+    "numpy>=1.18.5",
     "cvlib>=0.2.5",
     "progressbar2>=3.51.4",
-    "tensorflow>=1.15.3",
+    "tensorflow>=2.6.8",
     "jsonschema>=3.2.0",
-    "packaging",
-    "importlib_resources ; python_version<'3.7'"
+    "packaging>=21.0",
+    "importlib_resources==5.2.2 ; python_version<'3.7'"
 ]
 
 setuptools.setup(

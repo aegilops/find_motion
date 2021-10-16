@@ -240,11 +240,11 @@ class VideoFrame(object):
         self.contours: List = []
         self.color_contours: List = []
         self.edges_contours: List = []
-        
+
         self.frame_delta: np_ndarray = None
         self.color_delta: np_ndarray = None
         self.edges_delta: np_ndarray = None
-        
+
         self.mini: np_ndarray = None
         self.hue: np_ndarray = None
         self.mini_blur: np_ndarray = None
@@ -255,8 +255,8 @@ class VideoFrame(object):
 
         self.thresh: np_ndarray = None
         self.color_thresh: np_ndarray = None
-        self.edges_thresh: np_ndarray = None        
-        
+        self.edges_thresh: np_ndarray = None
+
     def find_edges(self):
         """Find edges in a frame."""
         self.edges = cv2.convertScaleAbs(cv2.Laplacian(self.mini, cv2.CV_32F))
@@ -359,13 +359,13 @@ class VideoFrame(object):
             dim = len(scaled_area)
             if dim == 2:
                 cv2.rectangle(frame,
-                                *scaled_area,
-                                BLACK, cv2.FILLED)
+                              *scaled_area,
+                              BLACK, cv2.FILLED)
             else:
                 pts = np_array(scaled_area, np_int32)
                 cv2.fillConvexPoly(frame,
-                                    pts,
-                                    BLACK)
+                                   pts,
+                                   BLACK)
 
     def cleanup(self) -> None:
         """
@@ -1185,11 +1185,11 @@ class VideoMotion(object):
                     cv2.imshow("resized", cf.resized)
 
                 self.log.debug('Showing ref frames')
-                if self.ref_scaled is not None:            
+                if self.ref_scaled is not None:
                     cv2.imshow('avg gray', self.ref_scaled)
-                if self.ref_color_scaled is not None: 
+                if self.ref_color_scaled is not None:
                     cv2.imshow("avg color", self.ref_color_scaled)
-                if self.ref_edges_scaled is not None: 
+                if self.ref_edges_scaled is not None:
                     cv2.imshow("avg edges", self.ref_edges_scaled)
             except Exception as e:
                 self.log.error('Oops: {}'.format(e))
@@ -1348,7 +1348,7 @@ def run_pool(job: Callable[..., Any], processes: int, files: Iterable[str]=None,
 
         for filename in files:
             parent_conn, child_conn = Pipe()
-            parent_conns.append(parent_conn) 
+            parent_conns.append(parent_conn)
             results.append(pool.apply_async(job, (filename, child_conn)))
 
         num_err = 0

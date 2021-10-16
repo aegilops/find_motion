@@ -12,7 +12,7 @@ With much help from OpenCV, https://www.pyimagesearch.com/ and https://cvlib.net
 
 This repo no longer provides the data files `coco.names`, `yolov4.weights`, `yolov4.cfg`, `yolov4-tiny.weights`, `yolov4-tiny.cfg`.
 
-This is because of excessive use of LFS bandwidth. You will need to source these files from elsewhere before installing and using the repo.
+This is because of excessive use (abuse?) of LFS bandwidth. You will need to source these files from elsewhere before installing and using the repo.
 
 Place them into the `find_motion/data` directory after cloning and before installing.
 

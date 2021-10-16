@@ -8,25 +8,19 @@ mypy:
 	mypy --ignore-missing-imports .
 
 bandit:
-	bandit -r .
+	bandit --quiet --silent -r .
 
 diatra:
 	python3 -m pydiatra .
 
 safety:
-	safety check
+	safety check --bare -r requirements.txt
 
 vulture:
-	vulture .
-
-pyright:
-	pyright
+	-vulture .
 
 dlint:
 	flake8 --select=DUO .
-
-pytype:
-	pytype .
 
 dev-requirements:
 	python3 -m pip install pip --upgrade --user

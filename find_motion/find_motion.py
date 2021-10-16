@@ -554,11 +554,11 @@ class VideoMotion(object):
                 self.weights = cfg_path.joinpath(weights_file).as_posix()  # type: ignore
                 names_file_path = cfg_path.joinpath(names_file)
             else:
-                with importlib_resources.path(data, cfg_file) as cfg_file_path:
+                with importlib_resources.path(data, cfg_file) as cfg_file_path:  # type: ignore
                     self.cfg = cfg_file_path.as_posix()
-                with importlib_resources.path(data, weights_file) as weights_file_path:
+                with importlib_resources.path(data, weights_file) as weights_file_path:  # type: ignore
                     self.weights = weights_file_path.as_posix()
-                with importlib_resources.path(data, names_file) as _names_file_path:
+                with importlib_resources.path(data, names_file) as _names_file_path:  # type: ignore
                     names_file_path = _names_file_path.as_posix()
         except Exception as err:
             self.log.error("Failed to read in YOLOv4 configuration: %s", err)
@@ -961,13 +961,13 @@ class VideoMotion(object):
         # with opencv2, v4.4.0, packaged yolov4.cfg and yolov4.weights
         # based on code snippet in https://github.com/opencv/opencv/pull/17185 that enabled support for YOLOv4 in OpenCV
         # TODO: only yolov4-tiny is working - get yolov4 working
-        if self.yolov4:
+        if self.yolov4 is not None and self.net is not None and self.names is not None:
             # do detection in this frame
             classes, confidences, boxes = self.net.detect(frame.resized, confThreshold=self.confidence, nmsThreshold=nmsthreshold)
             log.debug(f"Classes: {type(classes)} {classes}")
             log.debug(f"Confidences: {type(confidences)} {confidences}")
             log.debug(f"Boxes: {type(boxes)} {boxes}")
-            for classid, confidence, box in zip(
+            for classid, _confidence, box in zip(
                     classes.flatten() if hasattr(classes, 'flatten') else [],
                     confidences.flatten() if hasattr(confidences, 'flatten') else [],
                     boxes):

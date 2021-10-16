@@ -9,3 +9,5 @@
 .pytype/**
 coco.names
 yolov4*.*
+build/
+find_motion.egg-info/

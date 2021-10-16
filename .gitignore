@@ -1,0 +1,11 @@
+*.log
+*.ini
+*.json
+*.pyc
+*.lnk
+.pyre
+.pyre_configuration
+.pytype
+.pytype/**
+coco.names
+yolov4*.*

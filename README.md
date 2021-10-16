@@ -10,17 +10,19 @@ With much help from OpenCV, https://www.pyimagesearch.com/ and https://cvlib.net
 
 ## Data files
 
-This repo no longer provides the data files `coco.names`, `yolov4.weights`, `yolov4.cfg`, `yolov4-tiny.weights`, `yolov4-tiny.cfg`.
+This repo no longer directly provides the data files `coco.names`, `yolov4.weights`, `yolov4.cfg`, `yolov4-tiny.weights`, `yolov4-tiny.cfg`.
 
-This is because of excessive use (abuse?) of LFS bandwidth. You will need to source these files from elsewhere before installing and using the repo.
+This is because of excessive LFS bandwidth. You will need to source these files from elsewhere before installing and using the repo.
 
-Place them into the `find_motion/data` directory after cloning and before installing.
+They are currently available in a [Release of this project on GitHub](https://github.com/aegilops/find_motion/releases).
+
+Place them into the `find_motion/data` directory after cloning, and before installing.
 
 ## Installing
 
 First clone the repo and change into the directory.
 
-> NOTE: see above about data files that are required dependencies and do not come with this repo
+> NOTE: see above about data files that are required dependencies and are not inside this repo when you clone it
 
 To install as a module do `python3 -mpip install . --user` in the repo directory. You can run it with `find_motion` once it is installed.
 
@@ -40,7 +42,7 @@ You can build OpenCV2 from source if it has features missing from the pip packag
 
 Some of the dependencies may be nested so deep that they exceed `MAX_PATH` on Windows.
 
-If you are using Windows 10, try opting in to the new long file names, which have no length limit:
+If you are using Windows 10 or 11, try opting in to the new long file names, which have no length limit:
 
 * [Enable long paths in Windows 10 version 1607 and later](https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file#enable-long-paths-in-windows-10-version-1607-and-later)
 

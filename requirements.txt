@@ -4,7 +4,7 @@ opencv-python==4.5.3.56
 # alternatively, use opencv2 built from source if you require it, e.g.
 # https://github.com/opencv/opencv/releases/tag/4.5.3
 imutils==0.5.3
-numpy==1.18.5
+numpy==1.22
 cvlib==0.2.5
 progressbar2==3.51.4
 tensorflow==2.11.1
